@@ -1,0 +1,139 @@
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
+
+[tool.uv.sources.unified-trading-library]
+path = "../unified-trading-library"
+editable = true
+
+[tool.uv.sources.unified-api-contracts]
+path = "../unified-api-contracts"
+editable = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
+    "RUF",
+    "G",
+    "C90",
+]
+ignore = [
+    "B008",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "F401",
+    "F841",
+    "C901",
+    "E501",
+]
+"fund_administration_service/api/*.py" = [
+    "C901",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+reportAny = "error"
+reportUnknownMemberType = "error"
+reportUnknownVariableType = "error"
+reportUnknownArgumentType = "error"
+pythonVersion = "3.13"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+asyncio_mode = "auto"
+addopts = "--strict-markers --tb=short"
+markers = [
+    "integration: marks tests as integration tests",
+    "smoke: mark test as smoke test",
+    "unit: mark test as unit test",
+]
+
+[tool.coverage.run]
+source = [
+    "fund_administration_service",
+]
+omit = [
+    "tests/*",
+]
+
+[tool.coverage.report]
+fail_under = 70
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[project]
+name = "fund-administration-service"
+version = "0.1.0"
+description = "Fund administration: pooled subscriptions, redemptions, and capital allocation for IM funds"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+authors = [
+    { name = "Unified Trading System Team" },
+]
+dependencies = [
+    "fastapi<1.0.0,>=0.115.0",
+    "uvicorn[standard]>=0.27.0,<1.0.0",
+    "pydantic>=2.12.5,<3.0.0",
+    "pydantic-settings>=2.12.0,<3.0.0",
+    "python-multipart>=0.0.26,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "requests>=2.33.0,<3.0.0",
+    "aiohttp>=3.13.4,<4.0.0",
+    "starlette<1.0.0,>=0.52.1",
+    "psutil>=6.0.0,<7.0.0",
+    "prometheus-client>=0.20.0,<1.0.0",
+    "unified-trading-library>=0.1.0,<2.0.0",
+    "unified-api-contracts>=0.1.0,<1.0.0",
+    "pytest>=9.0.3,<10.0.0",
+    "pytest-cov>=7.0.0,<8.0.0",
+    "pytest-socket>=0.7.0,<1.0.0",
+    "pytest-asyncio>=0.25.0,<2.0.0",
+    "pytest-mock>=3.15.0,<4.0.0",
+    "pytest-timeout>=2.4.0,<3.0.0",
+    "pytest-xdist<4.0.0,>=3.6.0",
+    "ruff==0.15.0",
+    "basedpyright==1.38.2",
+    "pip-audit>=2.7.0,<3.0.0",
+    "bandit>=1.7.0,<2.0.0",
+]
+
+[project.license]
+text = "Proprietary"
+
+[project.scripts]
+fund-admin = "fund_administration_service.cli_entry:main"

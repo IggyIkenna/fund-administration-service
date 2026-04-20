@@ -1,0 +1,71 @@
+# --- Security (never commit credentials) ---
+*credentials*.json
+*-credentials.json
+*-service-account.json
+service-account*.json
+*secret*.json
+.env
+.env.local
+.env.*.local
+.env.production
+**/secrets/
+**/credentials/
+*.p12
+*.json.bak
+
+# --- OS / editor ---
+.DS_Store
+.DS_Store?
+Thumbs.db
+*.backup
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+.ruff_cache/
+.cache/
+*.egg-info/
+.eggs/
+*.egg
+*.so
+.Python
+.tox/
+.nox/
+.pyre/
+.pytype/
+
+# --- Python venvs ---
+.venv/
+.venv*/
+venv/
+venv*/
+.venv-workspace/
+ENV/
+env/
+
+# --- Coverage / test artifacts ---
+.coverage
+.coverage.*
+coverage/
+coverage.xml
+htmlcov/
+
+# --- Data / logs ---
+data/
+logs/
+*.log
+*.db
+
+# --- Cloud Build / cache ---
+.cloudbuild/

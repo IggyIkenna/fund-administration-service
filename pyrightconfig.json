@@ -1,0 +1,13 @@
+{
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "strict",
+  "include": ["fund_administration_service"],
+  "reportAny": "error",
+  "extraPaths": [".", "../unified-api-contracts", "../unified-trading-library"],
+  "reportMissingTypeStubs": false,
+  "reportImplicitRelativeImport": "none",
+  "reportMissingImports": "none",
+  "venvPath": ".",
+  "venv": ".venv",
+  "exclude": ["tests"]
+}
