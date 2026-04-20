@@ -16,7 +16,6 @@ from unified_api_contracts.internal import (
 )
 
 from fund_administration_service.allocation.transfer_protocol import (
-    FundTransferContext,
     TransferResult,
     TransferStatus,
 )

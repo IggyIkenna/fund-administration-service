@@ -1,19 +1,32 @@
-# SCHEMA_PROVENANCE_EXEMPT — local transfer-adapter Protocol + routing context.
+# Local ``TransferAdapter`` Protocol + ``TransferStatus`` / ``TransferResult``
+# structural mirrors of execution-service types.
 #
-# The execution-service canonical ``TransferAdapter`` Protocol + ``FundTransferContext``
-# dataclass ship in ``execution_service.engine.transfers.adapter``. Taking a hard
-# dependency on execution-service would pull in its entire algorithm / DeFi /
-# venue-adapter graph — too heavy for fund-administration-service tests. Instead
-# we declare a narrow structural mirror here: any execution-service adapter
+# The execution-service canonical ``TransferAdapter`` Protocol + ``TransferStatus``
+# / ``TransferResult`` dataclasses ship in
+# ``execution_service.engine.transfers.adapter``. Taking a hard dependency on
+# execution-service would pull in its entire algorithm / DeFi / venue-adapter
+# graph — too heavy for fund-administration-service tests. Instead we declare a
+# narrow structural mirror here: any execution-service adapter
 # (MockTransferAdapter, LiveCcxtTransferAdapter, LiveCustodyTransferAdapter,
-# CompositeTransferAdapter) satisfies this ``TransferAdapter`` Protocol at runtime
-# by duck-typing, so the CapitalRouter / GracePeriodHandler still route through
-# the canonical execution-service implementations in production.
+# CompositeTransferAdapter) satisfies this ``TransferAdapter`` Protocol at
+# runtime by duck-typing, so the CapitalRouter / GracePeriodHandler still
+# route through the canonical execution-service implementations in production.
 #
 # Structural subtyping is the right seam here: the wire protocol between
 # fund-administration-service and execution-service is declared once in
 # execution-service, and this Protocol is a runtime-compatible narrow view.
-"""Local transfer-adapter Protocol + ``FundTransferContext`` mirror."""
+#
+# ``FundTransferContext`` is NOT mirrored — it is a pure data class with no
+# Protocol semantics, and UAC owns it as a first-class fund-administration
+# domain type (``unified_api_contracts.fund_administration.FundTransferContext``).
+# Consumers should import it directly from UAC.
+"""Local transfer-adapter Protocol + ``TransferResult`` / ``TransferStatus`` mirrors.
+
+``FundTransferContext`` is re-exported from UAC (the canonical SSOT) — this
+module used to host a byte-for-byte duplicate dataclass; the duplicate has
+been deleted as part of the UAC-promotion fix. Consumers should import from
+``unified_api_contracts`` directly where possible.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +35,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
+from unified_api_contracts import FundTransferContext as FundTransferContext
+
 
 class TransferStatus(StrEnum):
     """Mirrors ``execution_service.engine.transfers.adapter.TransferStatus``."""
@@ -29,20 +44,6 @@ class TransferStatus(StrEnum):
     PENDING = "PENDING"
     CONFIRMED = "CONFIRMED"
     FAILED = "FAILED"
-
-
-@dataclass(frozen=True)
-class FundTransferContext:
-    """Routing context tagged onto every transfer driven by fund-administration.
-
-    Structural mirror of ``execution_service.engine.transfers.adapter.FundTransferContext``.
-    The execution-service adapter accepts this by keyword and propagates the
-    values through logs, events, and the ``TransferResult.fund_context`` field.
-    """
-
-    fund_id: str
-    share_class: str
-    allocation_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from unified_api_contracts import FundTransferContext
 from unified_api_contracts.internal import (
     FeeStructure,
     FundNAVSnapshot,
@@ -23,7 +24,6 @@ from unified_api_contracts.internal import (
 from unified_trading_library import setup_events
 
 from fund_administration_service.allocation.transfer_protocol import (
-    FundTransferContext,
     TransferResult,
     TransferStatus,
 )

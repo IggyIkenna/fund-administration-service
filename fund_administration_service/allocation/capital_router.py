@@ -25,11 +25,11 @@ from decimal import Decimal
 from unified_api_contracts import (
     AllocationExecutionStatus,
     FundAllocation,
+    FundTransferContext,
 )
 from unified_trading_library import FUND_ALLOCATION_REBALANCED
 
 from fund_administration_service.allocation.transfer_protocol import (
-    FundTransferContext,
     TransferAdapter,
     TransferResult,
     TransferStatus,

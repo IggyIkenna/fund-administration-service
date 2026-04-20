@@ -6,11 +6,11 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from unified_api_contracts import FundTransferContext
 from unified_api_contracts.internal import AllocationExecutionStatus
 
 from fund_administration_service.allocation import AllocationTarget, CapitalRouter
 from fund_administration_service.allocation.transfer_protocol import (
-    FundTransferContext,
     TransferResult,
     TransferStatus,
 )
