@@ -18,9 +18,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocatorRedemption,
     FeeStructure,
+    FundNAVSnapshot,
     RedemptionStatus,
 )
 from unified_trading_library import REDEMPTION_PROCESSED, REDEMPTION_SETTLED
@@ -28,6 +29,7 @@ from unified_trading_library import REDEMPTION_PROCESSED, REDEMPTION_SETTLED
 from fund_administration_service.allocation.transfer_protocol import (
     FundTransferContext,
     TransferAdapter,
+    TransferResult,
 )
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.events import emit_fund_admin_event
@@ -39,6 +41,16 @@ from fund_administration_service.redemption import (
 from fund_administration_service.subscription import NavProvider
 
 logger = logging.getLogger(__name__)
+
+
+class GracePeriodProcessingError(RuntimeError):
+    """Single error class wrapping any failure while driving a redemption.
+
+    The outer ``run_once`` loop catches *this* class specifically (not bare
+    ``Exception``) so shard-level failure isolation is explicit: an error on
+    one redemption is wrapped + re-raised as ``GracePeriodProcessingError``,
+    logged, and the loop continues with the next redemption.
+    """
 
 
 class GracePeriodHandler:
@@ -71,7 +83,7 @@ class GracePeriodHandler:
                 continue
             try:
                 processed.append(await self._drive(redemption))
-            except Exception:  # shard-level isolation per redemption
+            except GracePeriodProcessingError:  # shard-level isolation per redemption
                 logger.exception(
                     "Grace-period processing failed for redemption_id=%s",
                     redemption.redemption_id,
@@ -79,22 +91,42 @@ class GracePeriodHandler:
         return processed
 
     async def _drive(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
+        try:
+            return await self._drive_unchecked(redemption)
+        except GracePeriodProcessingError:
+            raise
+        except Exception as exc:  # narrow-wrap: all failures become one class
+            raise GracePeriodProcessingError(
+                f"Grace-period processing failed for redemption_id={redemption.redemption_id}"
+            ) from exc
+
+    async def _drive_unchecked(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
+        """Happy-path drive — ``_drive`` wraps failures into a single error class."""
+
         snapshot = self._nav_provider.latest_snapshot(redemption.fund_id, redemption.share_class)
         if snapshot is None:
-            raise RuntimeError(
+            raise GracePeriodProcessingError(
                 f"No NAV snapshot available for "
                 f"fund={redemption.fund_id} share_class={redemption.share_class}"
             )
         # Units-per-unit NAV: in the scaffold we read nav_usd as the per-unit NAV
         # directly; a proper units-outstanding divisor lands with the SQL store.
         settlement_nav = Decimal(snapshot.nav_usd)
-        fee_structure = self._fee_structure_for_fund[redemption.fund_id]
+        transfer = await self._withdraw_to_allocator(redemption, settlement_nav)
+        moved = self._persist_processed(redemption, snapshot, settlement_nav, transfer)
+        return self._persist_settled(moved)
+
+    async def _withdraw_to_allocator(
+        self, redemption: AllocatorRedemption, settlement_nav: Decimal
+    ) -> TransferResult:
+        """Execute the outbound treasury withdrawal for *redemption*."""
+
         fund_context = FundTransferContext(
             fund_id=redemption.fund_id,
             share_class=redemption.share_class,
             allocation_id=None,
         )
-        transfer = await self._transfers.execute_withdrawal(
+        return await self._transfers.execute_withdrawal(
             venue="TREASURY",
             token=redemption.share_class,
             amount=redemption.units_to_redeem * settlement_nav,
@@ -102,11 +134,21 @@ class GracePeriodHandler:
             chain=self._config.redemption_settlement_chain,
             fund_context=fund_context,
         )
+
+    def _persist_processed(
+        self,
+        redemption: AllocatorRedemption,
+        snapshot: FundNAVSnapshot,
+        settlement_nav: Decimal,
+        transfer: TransferResult,
+    ) -> AllocatorRedemption:
+        """Drive APPROVED -> PROCESSED, persist, emit the event."""
+
         moved = process_redemption(
             redemption,
             settlement_snapshot=snapshot,
             settlement_nav=settlement_nav,
-            fee_structure=fee_structure,
+            fee_structure=self._fee_structure_for_fund[redemption.fund_id],
             settlement_reference=transfer.tx_hash or transfer.transfer_id,
         )
         self._store.put_redemption(moved)
@@ -120,6 +162,11 @@ class GracePeriodHandler:
                 "settlement_reference": moved.settlement_reference,
             },
         )
+        return moved
+
+    def _persist_settled(self, moved: AllocatorRedemption) -> AllocatorRedemption:
+        """Drive PROCESSED -> SETTLED, persist, emit the event."""
+
         settled = settle_redemption(moved)
         self._store.put_redemption(settled)
         emit_fund_admin_event(

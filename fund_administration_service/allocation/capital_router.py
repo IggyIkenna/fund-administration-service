@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocationExecutionStatus,
     FundAllocation,
 )
@@ -31,6 +31,7 @@ from unified_trading_library import FUND_ALLOCATION_REBALANCED
 from fund_administration_service.allocation.transfer_protocol import (
     FundTransferContext,
     TransferAdapter,
+    TransferResult,
     TransferStatus,
 )
 from fund_administration_service.events import emit_fund_admin_event
@@ -126,26 +127,50 @@ class CapitalRouter:
                 fund_context=fund_context,
             )
         except Exception as exc:  # shard-level isolation — never raise across the loop
-            logger.exception("Transfer execution failed for %s", target.allocation_id)
-            failed = allocation.model_copy(
-                update={
-                    "execution_status": AllocationExecutionStatus.FAILED,
-                    "executed_timestamp": datetime.now(UTC),
-                }
-            )
-            self._store.put_allocation(failed)
-            emit_fund_admin_event(
-                FUND_ALLOCATION_REBALANCED,
-                details={
-                    "allocation_id": target.allocation_id,
-                    "fund_id": fund_id,
-                    "share_class": share_class,
-                    "status": AllocationExecutionStatus.FAILED.value,
-                    "error": str(exc),
-                },
-                severity="ERROR",
-            )
-            return failed
+            return self._record_transfer_failure(allocation, target, fund_id, share_class, exc)
+
+        return self._record_transfer_outcome(allocation, target, fund_id, share_class, transfer)
+
+    def _record_transfer_failure(
+        self,
+        allocation: FundAllocation,
+        target: AllocationTarget,
+        fund_id: str,
+        share_class: str,
+        exc: BaseException,
+    ) -> FundAllocation:
+        """Persist the FAILED allocation + emit the error event."""
+
+        logger.exception("Transfer execution failed for %s", target.allocation_id)
+        failed = allocation.model_copy(
+            update={
+                "execution_status": AllocationExecutionStatus.FAILED,
+                "executed_timestamp": datetime.now(UTC),
+            }
+        )
+        self._store.put_allocation(failed)
+        emit_fund_admin_event(
+            FUND_ALLOCATION_REBALANCED,
+            details={
+                "allocation_id": target.allocation_id,
+                "fund_id": fund_id,
+                "share_class": share_class,
+                "status": AllocationExecutionStatus.FAILED.value,
+                "error": str(exc),
+            },
+            severity="ERROR",
+        )
+        return failed
+
+    def _record_transfer_outcome(
+        self,
+        allocation: FundAllocation,
+        target: AllocationTarget,
+        fund_id: str,
+        share_class: str,
+        transfer: TransferResult,
+    ) -> FundAllocation:
+        """Persist the terminal allocation + emit the per-transfer event."""
 
         terminal_status = (
             AllocationExecutionStatus.COMPLETED

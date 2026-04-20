@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from unified_api_contracts.internal import FundNAVSnapshot
+from unified_api_contracts import FundNAVSnapshot
 
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.subscription import NavProvider

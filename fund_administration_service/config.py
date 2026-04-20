@@ -24,7 +24,10 @@ class FundAdministrationServiceConfig(UnifiedCloudConfig):
     )
 
     api_host: str = Field(
-        default="0.0.0.0",  # container binding; uvicorn owns exposure
+        # Loopback by default — container deployments override via the
+        # ``API_HOST`` env var to bind all interfaces (``0.0.0.0``).
+        # Avoids Bandit B104 on the default value.
+        default="127.0.0.1",
         validation_alias=AliasChoices("API_HOST", "api_host"),
         description="Host for the FastAPI server",
     )

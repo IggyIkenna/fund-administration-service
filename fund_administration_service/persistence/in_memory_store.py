@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from typing import Protocol
 
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocatorRedemption,
     AllocatorSubscription,
     FundAllocation,

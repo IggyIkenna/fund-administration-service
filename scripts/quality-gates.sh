@@ -9,16 +9,12 @@ RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 LOCAL_DEPS=()
 
-# Phase-2 scaffold: repo is not yet registered in workspace-manifest.json
-# (workspace-manifest.json edit is a separate follow-up per plan Phase 2).
-# Schema-provenance + manifest-alignment scanners require a manifest entry,
-# so skip until the follow-up lands. Every BaseModel/dataclass in this repo
-# is either imported from UAC or is tagged SCHEMA_PROVENANCE_EXEMPT (API
-# request bodies + internal DI container — not domain messages).
-SCHEMA_PROVENANCE_SKIP=true
-export SCHEMA_PROVENANCE_SKIP
-MANIFEST_ALIGNMENT_SKIP=true
-export MANIFEST_ALIGNMENT_SKIP
+# Manifest entry landed 2026-04-20 in unified-trading-pm/workspace-manifest.json
+# — manifest-alignment scanner unblocked. Schema-provenance scanner: every
+# BaseModel/dataclass is either imported from UAC or tagged
+# SCHEMA_PROVENANCE_EXEMPT (API request bodies + internal DI container — not
+# domain messages). Follow-up: promote FundTransferContext to UAC to eliminate
+# the last SCHEMA_PROVENANCE_EXEMPT tag in allocation/transfer_protocol.py.
 
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"

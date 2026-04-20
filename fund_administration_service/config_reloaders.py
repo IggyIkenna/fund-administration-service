@@ -8,8 +8,8 @@ shared config bucket so the ``CapitalRouter`` uses up-to-date venue metadata
 when driving transfers.
 
 Pattern required by STEP 5.34 in base-service.sh: parameter is a typed
-``FundAdministrationServiceConfig`` — never ``object`` and never
-``getattr(service_config, ...)``.
+``FundAdministrationServiceConfig`` — never ``object`` and never untyped
+attribute-name lookups.
 """
 
 from __future__ import annotations

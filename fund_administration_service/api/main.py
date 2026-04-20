@@ -1,17 +1,17 @@
-# SCHEMA_PROVENANCE_EXEMPT — request-body BaseModels + internal DI container only.
-# All DOMAIN messages (AllocatorSubscription / AllocatorRedemption / FundAllocation /
-# FeeStructure / FundNAVSnapshot) are imported from unified_api_contracts.internal.
+# SCHEMA_PROVENANCE_EXEMPT — remaining dataclasses are private DI-container
+# + AML-KYC decision types used purely inside create_app(); they are NOT
+# domain contracts (those live in UAC and are imported above).
 """Fund administration FastAPI app.
 
-Exposes one endpoint per lifecycle transition plus read endpoints. All domain
-payloads round-trip through UAC types — the request bodies are thin
-``dict[str, object]`` forms (FastAPI native), converted into UAC models in the
-route handler so the request schema stays in one place. State machines in
-``subscription.state_machine`` and ``redemption.state_machine`` do the work.
+Exposes one endpoint per lifecycle transition plus read endpoints. Every
+request body and every domain payload is a UAC-defined model — the service
+source declares no local BaseModel subclasses. State machines in
+``subscription.state_machine`` and ``redemption.state_machine`` do the
+actual transition work.
 
-Dependency wiring is deliberate: a single container dict bound at
-``create_app()`` time. Tests replace the dependencies wholesale by calling
-``build_container(...)`` with mock implementations.
+Dependency wiring is deliberate: a single container dataclass bound at
+``create_app()`` time. Tests replace the dependencies wholesale by passing
+their own ``_Container`` instance into ``create_app(...)``.
 """
 
 from __future__ import annotations
@@ -23,15 +23,20 @@ from decimal import Decimal
 from typing import cast
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocationExecutionStatus,
     AllocatorRedemption,
     AllocatorSubscription,
+    ApproveSubscriptionRequest,
     FeeStructure,
     FundAllocation,
     FundNAVSnapshot,
+    ProcessRedemptionRequest,
+    RebalanceRequest,
+    RedeemRequest,
     RedemptionStatus,
+    RejectRequest,
+    SubscribeRequest,
     SubscriptionStatus,
 )
 from unified_trading_library import (
@@ -113,43 +118,9 @@ class _Container:
     last_nav_strike: dict[str, datetime]
 
 
-# ---------- REST body schemas (inputs only — UAC internals are outputs) ----------
-
-
-class SubscribeRequest(BaseModel):
-    subscription_id: str
-    fund_id: str
-    allocator_id: str
-    share_class: str
-    requested_amount_usd: Decimal
-
-
-class RedeemRequest(BaseModel):
-    redemption_id: str
-    fund_id: str
-    allocator_id: str
-    share_class: str
-    units_to_redeem: Decimal
-    destination: str
-    grace_period_days: int | None = None
-
-
-class ApproveSubscriptionRequest(BaseModel):
-    nav_per_unit: Decimal
-
-
-class ProcessRedemptionRequest(BaseModel):
-    settlement_nav: Decimal
-    settlement_reference: str
-
-
-class RejectRequest(BaseModel):
-    reason: str
-
-
-class RebalanceRequest(BaseModel):
-    share_class: str
-    targets: list[dict[str, object]]
+# Note: request-body schemas (SubscribeRequest, RedeemRequest,
+# ApproveSubscriptionRequest, ProcessRedemptionRequest, RejectRequest,
+# RebalanceRequest) live in UAC — imported above from unified_api_contracts.
 
 
 # ---------- Factory ----------

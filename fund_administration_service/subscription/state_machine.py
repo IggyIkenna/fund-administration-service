@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocatorSubscription,
     FundNAVSnapshot,
     SubscriptionStatus,

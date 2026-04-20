@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from unified_api_contracts.internal import (
+from unified_api_contracts import (
     AllocatorRedemption,
     FeeStructure,
     FundNAVSnapshot,
