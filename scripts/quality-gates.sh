@@ -3,9 +3,10 @@
 # SSOT: unified-trading-codex/06-coding-standards/quality-gates-service-template.sh
 SERVICE_NAME="fund-administration-service"
 SOURCE_DIR="fund_administration_service"
-# New service scaffold (2026-04-20): actual coverage ~27%. Lowered until real tests land.
-# See .coverage-floor-exception.md. Raise to 70%+ as subscription/redemption state machines gain test depth.
-MIN_COVERAGE=25
+# After UAC FundTransferContext lifting (2026-04-22), 3 previously-broken test modules
+# (test_api_end_to_end, test_background_handlers, test_capital_router) collect + pass — actual
+# coverage is now ~84%. Restored to system floor of 70.
+MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 LOCAL_DEPS=()
