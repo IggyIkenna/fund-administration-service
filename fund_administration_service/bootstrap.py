@@ -55,6 +55,6 @@ def build_service_bootstrap() -> ServiceBootstrap:
         config_fn=get_service_config,
         modes=["batch", "live"],
         description=("Fund administration — pooled-fund subscription, redemption, allocation"),
-        add_category_arg=False,
+        add_asset_group_arg=False,
         add_date_args=False,
     )

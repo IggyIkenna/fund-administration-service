@@ -31,7 +31,8 @@ steps:
 
   - name: "gcr.io/cloud-builders/gcloud"
     id: "configure-docker"
-    args: ["auth", "configure-docker", "asia-northeast1-docker.pkg.dev", "--quiet"]
+    args:
+      ["auth", "configure-docker", "asia-northeast1-docker.pkg.dev", "--quiet"]
     waitFor: ["-"]
 
   - name: "gcr.io/cloud-builders/gcloud"
