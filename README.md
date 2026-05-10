@@ -15,7 +15,7 @@ The service consumes `TransferAdapter` (execution-service) for capital movements
 `unified_api_contracts.internal.domain.fund_administration` and `unified_api_contracts.internal`.
 
 See `unified-trading-pm/codex/14-playbooks/shared-core/treasury-and-subaccount-model.md` for the architectural
-background and `unified-trading-pm/plans/active/fund_administration_service_and_pooled_subscription_redemption_2026_04_20.plan.md`
+background and `unified-trading-pm/plans/active/fund_administration_service_and_pooled_subscription_redemption_2026_04_20.md`
 for the active rollout plan.
 
 ## Local development
