@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 
-from unified_trading_library import BaseModeHandler, ServiceBootstrap
+from unified_trading_library import BaseModeHandler, ServiceBootstrap, UnifiedServiceHandler
+from typing import Union
 
 from fund_administration_service.config import get_service_config
 
@@ -36,7 +37,7 @@ class ServeHandler(BaseModeHandler):
         }
 
 
-_OPERATIONS: dict[str, type[BaseModeHandler]] = {
+_OPERATIONS: dict[str, Union[type[BaseModeHandler], type[UnifiedServiceHandler]]] = {
     "serve": ServeHandler,
 }
 

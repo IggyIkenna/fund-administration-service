@@ -60,7 +60,7 @@ def start_fund_administration_config_reloaders(
 
     global _venue_reloader
 
-    config_store_bucket: str = service_config.config_store_bucket
+    config_store_bucket: str = str(service_config.config_store_bucket)
     project_id: str | None = service_config.gcp_project_id
 
     if not config_store_bucket:
