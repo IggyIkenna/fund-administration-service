@@ -53,7 +53,7 @@ jobs:
     name: Quality Gates (fund-administration-service)
     uses: IggyIkenna/unified-trading-pm/.github/workflows/python-quality-gates-v2.yml@live-defi-rollout
     with:
-      dep_repos: "unified-api-contracts unified-trading-library"
+      dep_repos: "unified-trading-library unified-api-contracts"
     secrets: inherit
     # Note: reusable workflow inputs are intentionally minimal — service_name + source_dir
     # are derived inside the reusable workflow from github.repository (caller's repo name)
