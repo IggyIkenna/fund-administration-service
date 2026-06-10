@@ -17,19 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout unified-trading-system-ui
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
 
       - name: Checkout unified-api-contracts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: IggyIkenna/unified-api-contracts
           path: _uac
           token: ${{ secrets.GH_PAT }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
