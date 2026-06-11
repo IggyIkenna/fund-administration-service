@@ -98,7 +98,7 @@ exclude_lines = [
 
 [project]
 name = "fund-administration-service"
-version = "0.2.1"
+version = "0.3.0"
 description = "Fund administration: pooled subscriptions, redemptions, and capital allocation for IM funds"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -117,7 +117,7 @@ dependencies = [
     "starlette>=1.0.1,<2.0.0",
     "psutil>=6.0.0,<7.0.0",
     "prometheus-client>=0.20.0,<1.0.0",
-    "unified-trading-library>=0.5.0,<1.0.0",
+    "unified-trading-library>=0.6.0,<1.0.0",
     "unified-api-contracts>=0.6.0,<1.0.0",
     "pytest>=9.0.3,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
