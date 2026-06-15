@@ -53,13 +53,28 @@ max-complexity = 8
 quote-style = "double"
 indent-style = "space"
 
+# Consolidated from the deleted pyrightconfig.json (2026-06-15) — toml is the single home
+# (pyrightconfig.json silently OVERRODE this block; finding #2 of the QG config-SSOT audit).
+# RATCHET (P1, plan quality_gates_speed_and_config_ssot_2026_06_09.md): reportImplicitRelativeImport
+# + reportMissingImports = "none" are the lax suppressions relocated verbatim to preserve current
+# (green) behavior. Resolve the underlying import errors, then DELETE those two "none" lines to bring
+# fund-administration-service fully onto the workspace strict standard. (The unknown-type rules stay
+# "error" — this repo already passes those.)
 [tool.basedpyright]
+pythonVersion = "3.13"
 typeCheckingMode = "strict"
+include = ["fund_administration_service"]
 reportAny = "error"
 reportUnknownMemberType = "error"
 reportUnknownVariableType = "error"
 reportUnknownArgumentType = "error"
-pythonVersion = "3.13"
+reportMissingTypeStubs = false
+reportImplicitRelativeImport = "none"
+reportMissingImports = "none"
+venvPath = "."
+venv = ".venv"
+extraPaths = [".", "../unified-api-contracts", "../unified-trading-library"]
+exclude = ["tests"]
 
 [tool.pytest.ini_options]
 testpaths = [
