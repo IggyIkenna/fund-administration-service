@@ -15,7 +15,8 @@ COPY README.md ./
 COPY fund_administration_service/ ./fund_administration_service/
 COPY tests/ ./tests/
 
-RUN uv sync --frozen --no-dev --system
+# uv >= 0.11 removed --system from `uv sync`.
+RUN uv sync --frozen --no-dev
 
 # Stage 2: Runtime stage
 ARG PROJECT_ID
@@ -28,7 +29,10 @@ COPY README.md ./
 
 COPY fund_administration_service/ ./fund_administration_service/
 
-RUN uv sync --frozen --no-dev --system
+# uv >= 0.11 removed --system from `uv sync`; sync into .venv + put it on PATH so the
+# `python -m` CMD resolves deps (mirrors alerting-service working pattern).
+RUN uv sync --frozen --no-dev
+ENV PATH="/app/.venv/bin:${PATH}"
 
 ENV MODE=live
 ENV API_HOST=0.0.0.0
