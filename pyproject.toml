@@ -108,7 +108,7 @@ exclude_lines = [
 
 [project]
 name = "fund-administration-service"
-version = "0.3.2"
+version = "0.3.3"
 description = "Fund administration: pooled subscriptions, redemptions, and capital allocation for IM funds"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
