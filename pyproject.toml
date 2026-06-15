@@ -53,13 +53,10 @@ max-complexity = 8
 quote-style = "double"
 indent-style = "space"
 
-# Consolidated from the deleted pyrightconfig.json (2026-06-15) — toml is the single home
-# (pyrightconfig.json silently OVERRODE this block; finding #2 of the QG config-SSOT audit).
-# RATCHET (P1, plan quality_gates_speed_and_config_ssot_2026_06_09.md): reportImplicitRelativeImport
-# + reportMissingImports = "none" are the lax suppressions relocated verbatim to preserve current
-# (green) behavior. Resolve the underlying import errors, then DELETE those two "none" lines to bring
-# fund-administration-service fully onto the workspace strict standard. (The unknown-type rules stay
-# "error" — this repo already passes those.)
+# P1 ratchet complete (plan quality_gates_speed_and_config_ssot_2026_06_09.md):
+# reportImplicitRelativeImport + reportMissingImports suppressions removed — all 14
+# reportUnusedFunction errors fixed by converting FastAPI decorator pattern to
+# app.add_api_route() explicit registration. BASEDPYRIGHT_MAX_ERRORS=0 enforced in QG.
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
@@ -69,8 +66,6 @@ reportUnknownMemberType = "error"
 reportUnknownVariableType = "error"
 reportUnknownArgumentType = "error"
 reportMissingTypeStubs = false
-reportImplicitRelativeImport = "none"
-reportMissingImports = "none"
 venvPath = "."
 venv = ".venv"
 extraPaths = [".", "../unified-api-contracts", "../unified-trading-library"]

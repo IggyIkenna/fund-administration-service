@@ -182,7 +182,6 @@ def create_app(container: _Container | None = None) -> FastAPI:
 
 
 def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
-    @app.post("/subscriptions")
     def post_subscription(body: SubscribeRequest) -> AllocatorSubscription:
         sub = create_subscription(
             subscription_id=body.subscription_id,
@@ -204,15 +203,15 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return sub
 
-    @app.get("/subscriptions/{subscription_id}")
     def get_subscription(subscription_id: str) -> AllocatorSubscription:
         sub = ctx.store.get_subscription(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404, detail="Subscription not found")
         return sub
 
-    @app.post("/subscriptions/{subscription_id}/approve")
-    def approve(subscription_id: str, body: ApproveSubscriptionRequest) -> AllocatorSubscription:
+    def approve_sub(
+        subscription_id: str, body: ApproveSubscriptionRequest
+    ) -> AllocatorSubscription:
         sub = ctx.store.get_subscription(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404, detail="Subscription not found")
@@ -254,8 +253,7 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return approved
 
-    @app.post("/subscriptions/{subscription_id}/reject")
-    def reject(subscription_id: str, body: RejectRequest) -> AllocatorSubscription:
+    def reject_sub(subscription_id: str, body: RejectRequest) -> AllocatorSubscription:
         sub = ctx.store.get_subscription(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404, detail="Subscription not found")
@@ -272,8 +270,7 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return rejected
 
-    @app.post("/subscriptions/{subscription_id}/settle")
-    def settle(subscription_id: str) -> AllocatorSubscription:
+    def settle_sub(subscription_id: str) -> AllocatorSubscription:
         sub = ctx.store.get_subscription(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404, detail="Subscription not found")
@@ -289,12 +286,17 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return settled
 
+    app.add_api_route("/subscriptions", post_subscription, methods=["POST"])
+    app.add_api_route("/subscriptions/{subscription_id}", get_subscription, methods=["GET"])
+    app.add_api_route("/subscriptions/{subscription_id}/approve", approve_sub, methods=["POST"])
+    app.add_api_route("/subscriptions/{subscription_id}/reject", reject_sub, methods=["POST"])
+    app.add_api_route("/subscriptions/{subscription_id}/settle", settle_sub, methods=["POST"])
+
 
 # ---------- Redemption routes ----------
 
 
 def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
-    @app.post("/redemptions")
     def post_redemption(body: RedeemRequest) -> AllocatorRedemption:
         grace = (
             body.grace_period_days
@@ -324,15 +326,13 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return red
 
-    @app.get("/redemptions/{redemption_id}")
     def get_redemption(redemption_id: str) -> AllocatorRedemption:
         red = ctx.store.get_redemption(redemption_id)
         if red is None:
             raise HTTPException(status_code=404, detail="Redemption not found")
         return red
 
-    @app.post("/redemptions/{redemption_id}/approve")
-    def approve(redemption_id: str) -> AllocatorRedemption:
+    def approve_red(redemption_id: str) -> AllocatorRedemption:
         red = ctx.store.get_redemption(redemption_id)
         if red is None:
             raise HTTPException(status_code=404, detail="Redemption not found")
@@ -348,8 +348,7 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return approved
 
-    @app.post("/redemptions/{redemption_id}/reject")
-    def reject(redemption_id: str, body: RejectRequest) -> AllocatorRedemption:
+    def reject_red(redemption_id: str, body: RejectRequest) -> AllocatorRedemption:
         red = ctx.store.get_redemption(redemption_id)
         if red is None:
             raise HTTPException(status_code=404, detail="Redemption not found")
@@ -366,8 +365,7 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return rejected
 
-    @app.post("/redemptions/{redemption_id}/process")
-    def process(redemption_id: str, body: ProcessRedemptionRequest) -> AllocatorRedemption:
+    def process_red(redemption_id: str, body: ProcessRedemptionRequest) -> AllocatorRedemption:
         red = ctx.store.get_redemption(redemption_id)
         if red is None:
             raise HTTPException(status_code=404, detail="Redemption not found")
@@ -407,8 +405,7 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return processed
 
-    @app.post("/redemptions/{redemption_id}/settle")
-    def settle(redemption_id: str) -> AllocatorRedemption:
+    def settle_red(redemption_id: str) -> AllocatorRedemption:
         red = ctx.store.get_redemption(redemption_id)
         if red is None:
             raise HTTPException(status_code=404, detail="Redemption not found")
@@ -423,16 +420,21 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
         )
         return settled
 
+    app.add_api_route("/redemptions", post_redemption, methods=["POST"])
+    app.add_api_route("/redemptions/{redemption_id}", get_redemption, methods=["GET"])
+    app.add_api_route("/redemptions/{redemption_id}/approve", approve_red, methods=["POST"])
+    app.add_api_route("/redemptions/{redemption_id}/reject", reject_red, methods=["POST"])
+    app.add_api_route("/redemptions/{redemption_id}/process", process_red, methods=["POST"])
+    app.add_api_route("/redemptions/{redemption_id}/settle", settle_red, methods=["POST"])
+
 
 # ---------- Allocation / NAV routes ----------
 
 
 def _register_allocation_routes(app: FastAPI, ctx: _Container) -> None:
-    @app.get("/funds/{fund_id}/allocations")
     def list_allocations(fund_id: str) -> list[FundAllocation]:
         return ctx.store.list_allocations_for_fund(fund_id)
 
-    @app.post("/funds/{fund_id}/allocations/rebalance")
     async def rebalance(fund_id: str, body: RebalanceRequest) -> list[FundAllocation]:
         if ctx.transfer_adapter is None:
             raise HTTPException(
@@ -452,11 +454,11 @@ def _register_allocation_routes(app: FastAPI, ctx: _Container) -> None:
                     token=str(raw["token"]),
                 )
             )
-        router = CapitalRouter(
+        capital_router = CapitalRouter(
             transfer_adapter=ctx.transfer_adapter,
             store=ctx.store,
         )
-        allocations = await router.rebalance(
+        allocations = await capital_router.rebalance(
             fund_id=fund_id, share_class=body.share_class, targets=targets
         )
         # Emit a single final FUND_ALLOCATION_REBALANCED summary alongside the
@@ -479,7 +481,6 @@ def _register_allocation_routes(app: FastAPI, ctx: _Container) -> None:
         ctx.last_nav_strike[fund_id] = datetime.now(UTC)
         return allocations
 
-    @app.get("/funds/{fund_id}/nav/history")
     def nav_history(fund_id: str, share_class: str) -> dict[str, object]:
         snapshot = ctx.nav_provider.latest_snapshot(fund_id, share_class)
         if snapshot is None:
@@ -489,3 +490,7 @@ def _register_allocation_routes(app: FastAPI, ctx: _Container) -> None:
             "share_class": share_class,
             "history": [snapshot.model_dump(mode="json")],
         }
+
+    app.add_api_route("/funds/{fund_id}/allocations", list_allocations, methods=["GET"])
+    app.add_api_route("/funds/{fund_id}/allocations/rebalance", rebalance, methods=["POST"])
+    app.add_api_route("/funds/{fund_id}/nav/history", nav_history, methods=["GET"])
