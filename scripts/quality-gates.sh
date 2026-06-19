@@ -18,6 +18,7 @@ LOCAL_DEPS=()
 # domain messages). Follow-up: promote FundTransferContext to UAC to eliminate
 # the last SCHEMA_PROVENANCE_EXEMPT tag in allocation/transfer_protocol.py.
 
+MAX_DURATION=600  # suite grew to ~590s after UAC FundTransferContext lifting (2026-04-22) enabled 3 new test modules (test_api_end_to_end, test_background_handlers, test_capital_router)
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)}"
 # CODEX_MAX_VIOLATIONS pinned 2026-06-11 per plans/active/codex_violations_ratchet_to_five_2026_06_10.md (census-honest: 0 current violations; ratchet-down only).
 CODEX_MAX_VIOLATIONS=0
