@@ -1,27 +1,8 @@
-# Multi-stage build for fund-administration-service
-# Stage 1: Build stage
 ARG PROJECT_ID
 # Digest-pinned UTL base image (QG STEP 5.79 -- reproducible builds + UTL/UAC provenance).
 # Refreshed by the dependency-update fan-out (update-dependency-version.yml) on base-image
 # republish; cloudbuild may override at build time: --build-arg BASE_IMAGE_DIGEST=sha256:...
 ARG BASE_IMAGE_DIGEST=sha256:2baa8551d422ad4144da65990589106b5a4eb80ba0b15de0cbece9105eebfa2c
-FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST} AS builder
-
-WORKDIR /app
-
-COPY pyproject.toml uv.lock ./
-COPY README.md ./
-
-COPY fund_administration_service/ ./fund_administration_service/
-COPY tests/ ./tests/
-
-# Install service + external deps into system python, ignoring [tool.uv.sources] editable sibling
-# paths (--no-sources): UTL/UAC are in the base image; the GCP build context has no sibling repos
-# to satisfy the editable `../unified-api-contracts` path `uv sync --frozen` demands. Mirrors mdps.
-RUN uv pip install --system -e . --no-sources
-
-# Stage 2: Runtime stage
-ARG PROJECT_ID
 FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST}
 
 WORKDIR /app
