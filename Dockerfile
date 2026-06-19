@@ -30,6 +30,10 @@ COPY pyproject.toml uv.lock ./
 COPY README.md ./
 
 COPY fund_administration_service/ ./fund_administration_service/
+# Copy the repo's own scripts/ so the in-image quality-gates (cloudbuild Step #6) runs THIS service's
+# GUARDED quality-gates.sh — without it the image falls through to the base image's leftover library
+# QG (sources base-library.sh unguarded → "line 101: //unified-trading-pm/.../base-library.sh" fail).
+COPY scripts/ ./scripts/
 
 # Install service + external deps into system python, ignoring [tool.uv.sources] editable sibling
 # paths (--no-sources): UTL/UAC are in the base image; the GCP build context has no sibling repos.
