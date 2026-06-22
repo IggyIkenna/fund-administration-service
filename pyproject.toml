@@ -91,6 +91,12 @@ markers = [
 source = [
     "fund_administration_service",
 ]
+# pytest-cov + xdist: workers are separate processes; without parallel-combine the terminal
+# fail-under reads PARTIAL (controller-only) data and spuriously fails (2026-06-22: mtds saw
+# terminal 46.4% while coverage.xml correctly combined to 83.95%). parallel-combine fixes the gate.
+parallel = true
+concurrency = ["thread", "multiprocessing"]
+sigterm = true
 omit = [
     "tests/*",
 ]
@@ -108,7 +114,7 @@ exclude_lines = [
 
 [project]
 name = "fund-administration-service"
-version = "0.9.0"
+version = "0.9.2"
 description = "Fund administration: pooled subscriptions, redemptions, and capital allocation for IM funds"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
