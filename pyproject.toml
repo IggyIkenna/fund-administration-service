@@ -1,7 +1,7 @@
 [build-system]
 requires = [
     "hatchling",
-]
+"hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources.unified-trading-library]
@@ -114,7 +114,7 @@ exclude_lines = [
 
 [project]
 name = "fund-administration-service"
-version = "0.9.32"
+dynamic = ["version"]
 description = "Fund administration: pooled subscriptions, redemptions, and capital allocation for IM funds"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -154,3 +154,6 @@ text = "Proprietary"
 
 [project.scripts]
 fund-admin = "fund_administration_service.cli_entry:main"
+
+[tool.hatch.version]
+source = "vcs"
