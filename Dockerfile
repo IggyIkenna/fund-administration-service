@@ -19,6 +19,8 @@ COPY scripts/ ./scripts/
 # Install service + external deps into system python, ignoring [tool.uv.sources] editable sibling
 # paths (--no-sources): UTL/UAC are in the base image; the GCP build context has no sibling repos.
 # (--system installs into system python, so no .venv on PATH is needed — mirrors mdps.)
+ARG SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FUND_ADMINISTRATION_SERVICE
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FUND_ADMINISTRATION_SERVICE=${SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FUND_ADMINISTRATION_SERVICE:-}
 RUN uv pip install --system -e . --no-sources
 
 ENV MODE=live
