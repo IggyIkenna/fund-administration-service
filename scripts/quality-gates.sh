@@ -18,7 +18,7 @@ LOCAL_DEPS=()
 # domain messages). Follow-up: promote FundTransferContext to UAC to eliminate
 # the last SCHEMA_PROVENANCE_EXEMPT tag in allocation/transfer_protocol.py.
 
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)}"
+WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 # CODEX_MAX_VIOLATIONS pinned 2026-06-11 per plans/active/codex_violations_ratchet_to_five_2026_06_10.md (census-honest: 0 current violations; ratchet-down only).
 CODEX_MAX_VIOLATIONS=0
 BASEDPYRIGHT_MAX_ERRORS=0
