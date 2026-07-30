@@ -22,7 +22,18 @@ COPY scripts/ ./scripts/
 # scm-version-fix: pretend version for editable install (D13 git-tag versioning)
 ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
-RUN uv pip install --system -e . --no-sources
+
+# uv does NOT read pip.conf's extra-index-url (pip-only convention) and this Dockerfile carries
+# no pip.conf at all, so uv has ZERO private-registry config — any dependency floor-bump past what
+# the pinned base image bundles (e.g. unified-trading-library) reads as "not found in the package
+# registry" with no auth error surfaced. See
+# cloud_build_unified_api_contracts_publish_ordering_race_2026_07_29.md (instruments-service root
+# cause + fix, commits 76eba912/4c05f2d3). Fix: mount a freshly-minted access token (same
+# auth-precheck mechanism already proven against this exact index) as a BuildKit secret, scoped to
+# only this RUN layer — never baked into an image layer or history.
+RUN --mount=type=secret,id=gar_token \
+    UV_EXTRA_INDEX_URL="https://oauth2accesstoken:$(cat /run/secrets/gar_token)@asia-northeast1-python.pkg.dev/central-element-323112/unified-libraries/simple/" \
+    uv pip install --system -e . --no-sources
 
 ENV MODE=live
 ENV API_HOST=0.0.0.0
