@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   regenerate-registry:
-    runs-on: [self-hosted, glue]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout unified-trading-system-ui
         uses: actions/checkout@v5
