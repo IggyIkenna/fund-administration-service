@@ -198,6 +198,16 @@ steps:
       - |
         set -e
         VERSION=$(cat /workspace/VERSION 2>/dev/null || echo "0.0.0.dev0")
+        SAFE_SHA="$SHORT_SHA"
+        if [ -z "$$SAFE_SHA" ]; then SAFE_SHA="$$VERSION"; fi
+        if [ -z "$$VERSION" ]; then VERSION="$$SAFE_SHA"; fi
+        if [ -z "$$SAFE_SHA" ] || [ -z "$$VERSION" ]; then
+          echo "FATAL: cannot build an image tag — SHORT_SHA and VERSION are both empty." >&2
+          echo "  SHORT_SHA is set only for trigger (repoSource) builds; a manual" >&2
+          echo "  'gcloud builds submit' must pass --substitutions SHORT_SHA=<sha>," >&2
+          echo "  or the extract-version step must write /workspace/VERSION." >&2
+          exit 1
+        fi
         # scm-version-fix: SETUPTOOLS_SCM_PRETEND_VERSION build-arg (D13 git-tag versioning).
         # VERSION from extract-version is always PEP440-valid (git-tag > pyproject > 0.0.0.dev0),
         # so it is passed straight through to setuptools-scm inside the docker build.
