@@ -74,15 +74,16 @@ class GracePeriodHandler:
         self._transfers = transfer_adapter
 
     async def run_forever(self, interval_seconds: int) -> None:
-        """Wall-clock loop — calls ``run_once()`` every ``interval_seconds``, forever.
+        """Wall-clock loop — calls ``run_once()`` then sleeps ``interval_seconds``,
+        forever.
 
         Started from ``create_app()``'s FastAPI startup/lifespan hook. Runs
         until the owning task is cancelled (app shutdown).
         """
 
         while True:
-            await asyncio.sleep(interval_seconds)
             await self.run_once()
+            await asyncio.sleep(interval_seconds)
 
     async def run_once(self) -> list[AllocatorRedemption]:
         """Process every APPROVED redemption whose grace-period has expired."""
