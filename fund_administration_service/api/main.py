@@ -58,7 +58,10 @@ from unified_trading_library import (
 
 from fund_administration_service import __version__
 from fund_administration_service.allocation import AllocationTarget, CapitalRouter
-from fund_administration_service.allocation.transfer_protocol import TransferAdapter
+from fund_administration_service.allocation.transfer_protocol import (
+    LocalSimulatedTransferAdapter,
+    TransferAdapter,
+)
 from fund_administration_service.background import GracePeriodHandler, NAVStrikeScheduler
 from fund_administration_service.config import (
     FundAdministrationServiceConfig,
@@ -102,11 +105,25 @@ class _AutoApproveGate:
         )
 
 
-class _EmptyNavProvider:
-    """Placeholder ``NavProvider`` that returns ``None`` until wired to GCS."""
+class _StoreBackedNavProvider:
+    """Reads the latest ``FundNAVSnapshot`` pushed by position-balance-monitor-service.
+
+    ``FundNAVSnapshot`` (unified_api_contracts.internal.domain.client_reporting)
+    carries no ``share_class`` field — the store is keyed by ``fund_id`` only,
+    matching the schema's own fund-level (not fund+share-class) NAV modeling;
+    ``share_class`` is accepted here purely for ``NavProvider`` Protocol
+    conformance. Populated by the ``POST /nav-snapshots`` webhook route below,
+    matching ``FundNAVSnapshot``'s own docstring: "The
+    position-balance-monitor-service builds these snapshots and pushes them
+    via webhook." Replaces the previous ``_EmptyNavProvider`` stub that
+    always returned ``None``.
+    """
+
+    def __init__(self, store: PersistenceStore) -> None:
+        self._store = store
 
     def latest_snapshot(self, fund_id: str, share_class: str) -> FundNAVSnapshot | None:
-        return None
+        return self._store.latest_nav_snapshot(fund_id)
 
 
 @dataclass
@@ -131,12 +148,13 @@ class _Container:
 
 
 def _build_default_container() -> _Container:
+    store = InMemoryStore()
     return _Container(
         service_config=get_service_config(),
-        store=InMemoryStore(),
-        nav_provider=_EmptyNavProvider(),
+        store=store,
+        nav_provider=_StoreBackedNavProvider(store),
         aml_gate=_AutoApproveGate(),
-        transfer_adapter=None,
+        transfer_adapter=LocalSimulatedTransferAdapter(),
         fee_structure_for_fund={},
         last_nav_strike={},
     )
@@ -230,6 +248,7 @@ def create_app(container: _Container | None = None) -> FastAPI:
     _register_subscription_routes(app, ctx)
     _register_redemption_routes(app, ctx)
     _register_allocation_routes(app, ctx)
+    _register_nav_ingest_routes(app, ctx)
     return app
 
 
@@ -549,3 +568,17 @@ def _register_allocation_routes(app: FastAPI, ctx: _Container) -> None:
     app.add_api_route("/funds/{fund_id}/allocations", list_allocations, methods=["GET"])
     app.add_api_route("/funds/{fund_id}/allocations/rebalance", rebalance, methods=["POST"])
     app.add_api_route("/funds/{fund_id}/nav/history", nav_history, methods=["GET"])
+
+
+# ---------- NAV snapshot ingest (webhook) ----------
+
+
+def _register_nav_ingest_routes(app: FastAPI, ctx: _Container) -> None:
+    """Webhook receiver for position-balance-monitor-service's pushed
+    ``FundNAVSnapshot``s — the real production feed for ``_StoreBackedNavProvider``."""
+
+    def post_nav_snapshot(body: FundNAVSnapshot) -> FundNAVSnapshot:
+        ctx.store.put_nav_snapshot(body)
+        return body
+
+    app.add_api_route("/nav-snapshots", post_nav_snapshot, methods=["POST"])

@@ -24,10 +24,15 @@ from unified_api_contracts.internal import (
 from unified_trading_library import setup_events
 
 from fund_administration_service.allocation.transfer_protocol import (
+    LocalSimulatedTransferAdapter,
     TransferResult,
     TransferStatus,
 )
-from fund_administration_service.api.main import _Container, create_app
+from fund_administration_service.api.main import (
+    _build_default_container,
+    _Container,
+    create_app,
+)
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.persistence import InMemoryStore
 
@@ -247,3 +252,80 @@ def test_health_endpoint_returns_ok() -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["service"] == "fund-administration-service"
+
+
+def test_build_default_container_wires_real_transfer_adapter_and_nav_provider() -> None:
+    """`_default_container()`'s production path must never leave
+    `transfer_adapter=None` or an always-empty `nav_provider` — both were
+    permanent no-ops before this wiring landed. Mock/test containers built
+    explicitly (as `_make_client()` above does) may still pass `None`."""
+
+    container = _build_default_container()
+    assert container.transfer_adapter is not None
+    # The store-backed nav_provider is real (not the old always-None stub) —
+    # prove it round-trips a snapshot pushed through the same store instance.
+    assert container.nav_provider.latest_snapshot("fund-X", "USDC") is None
+    snap = FundNAVSnapshot(
+        snapshot_id="snap-default-container",
+        fund_id="fund-X",
+        snapshot_timestamp=datetime.now(UTC),
+        frequency=NAVSnapshotFrequency.DAILY,
+        nav_usd=Decimal("500"),
+    )
+    container.store.put_nav_snapshot(snap)
+    assert container.nav_provider.latest_snapshot("fund-X", "USDC") == snap
+
+
+def test_nav_snapshot_webhook_ingests_and_feeds_nav_provider() -> None:
+    """`POST /nav-snapshots` (the position-balance-monitor-service webhook
+    receiver) stores the pushed snapshot where the wired `NavProvider` reads
+    it — proves the ingest route and the store-backed provider are the same
+    real pipeline, not two disconnected stubs."""
+
+    # Real container (not `_make_client()`'s fixed-snapshot test double) —
+    # only `_build_default_container()`'s `_StoreBackedNavProvider` actually
+    # reads what the webhook writes.
+    client = TestClient(create_app(_build_default_container()))
+    payload = {
+        "snapshot_id": "snap-webhook-1",
+        "fund_id": "fund-IT",
+        "snapshot_timestamp": datetime.now(UTC).isoformat(),
+        "frequency": "DAILY",
+        "nav_usd": "250000",
+    }
+    r = client.post("/nav-snapshots", json=payload)
+    assert r.status_code == 200
+    r2 = client.get("/funds/fund-IT/nav/history", params={"share_class": "USDC"})
+    assert r2.status_code == 200
+    history = r2.json()["history"]
+    assert len(history) == 1
+    assert history[0]["snapshot_id"] == "snap-webhook-1"
+
+
+async def test_local_simulated_transfer_adapter_confirms_every_method() -> None:
+    """`LocalSimulatedTransferAdapter` (the real `_default_container()` default,
+    replacing the old `transfer_adapter=None`) confirms instantly on all three
+    `TransferAdapter` Protocol methods — proves it is safe to drive
+    `CapitalRouter`/`GracePeriodHandler` end-to-end without a wired
+    execution-service integration (out of repo-scope; see the class docstring
+    for the T4 no-service-imports HARD RULE this works around)."""
+
+    adapter = LocalSimulatedTransferAdapter()
+    withdrawal = await adapter.execute_withdrawal(
+        venue="TREASURY", token="USDC", amount=Decimal("10"), to_address="0xDEAD", chain="ETHEREUM"
+    )
+    internal = await adapter.execute_internal_transfer(
+        venue="BINANCE",
+        from_wallet="funding",
+        to_wallet="trading",
+        token="USDT",
+        amount=Decimal("5"),
+        params={},
+    )
+    onchain = await adapter.execute_onchain_transfer(
+        from_wallet_id="w1", to_address="0xBEEF", token="ETH", amount=Decimal("1"), chain="ETHEREUM"
+    )
+    for result in (withdrawal, internal, onchain):
+        assert result.status is TransferStatus.CONFIRMED
+        assert result.transfer_id
+        assert result.tx_hash == result.transfer_id

@@ -21,6 +21,7 @@ from unified_api_contracts import (
     AllocatorRedemption,
     AllocatorSubscription,
     FundAllocation,
+    FundNAVSnapshot,
 )
 
 
@@ -48,6 +49,11 @@ class PersistenceStore(Protocol):
 
     def list_allocations_for_fund(self, fund_id: str) -> list[FundAllocation]: ...
 
+    # --- NAV snapshots ------------------------------------------------------
+    def put_nav_snapshot(self, snapshot: FundNAVSnapshot) -> None: ...
+
+    def latest_nav_snapshot(self, fund_id: str) -> FundNAVSnapshot | None: ...
+
 
 class InMemoryStore:
     """Thread-safe in-memory implementation of ``PersistenceStore``.
@@ -61,6 +67,7 @@ class InMemoryStore:
         self._subscriptions: dict[str, AllocatorSubscription] = {}
         self._redemptions: dict[str, AllocatorRedemption] = {}
         self._allocations: dict[str, FundAllocation] = {}
+        self._nav_snapshots: dict[str, FundNAVSnapshot] = {}
 
     def put_subscription(self, subscription: AllocatorSubscription) -> None:
         with self._lock:
@@ -97,3 +104,16 @@ class InMemoryStore:
     def list_allocations_for_fund(self, fund_id: str) -> list[FundAllocation]:
         with self._lock:
             return [alloc for alloc in self._allocations.values() if alloc.fund_id == fund_id]
+
+    def put_nav_snapshot(self, snapshot: FundNAVSnapshot) -> None:
+        """Store *snapshot* as the latest for its ``fund_id`` (last-write-wins
+        by ``snapshot_timestamp``, never regresses to an older push)."""
+
+        with self._lock:
+            existing = self._nav_snapshots.get(snapshot.fund_id)
+            if existing is None or snapshot.snapshot_timestamp >= existing.snapshot_timestamp:
+                self._nav_snapshots[snapshot.fund_id] = snapshot
+
+    def latest_nav_snapshot(self, fund_id: str) -> FundNAVSnapshot | None:
+        with self._lock:
+            return self._nav_snapshots.get(fund_id)
