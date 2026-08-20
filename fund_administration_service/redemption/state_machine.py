@@ -86,8 +86,9 @@ def process_redemption(
     """APPROVED -> PROCESSED. Computes ``cash_amount_due_usd``.
 
     ``cash_amount_due = units * settlement_nav - (units * settlement_nav * total_fee_pct)``
-    where ``total_fee_pct`` is the sum of trader + odum performance fees from the
-    injected ``FeeStructure``. Grace-period timing is the caller's gate — this
+    where ``total_fee_pct`` is the sum of trader + odum performance fees plus the
+    redemption-processing fee from the injected ``FeeStructure``. Grace-period
+    timing is the caller's gate — this
     function asserts the source status is APPROVED but does not evaluate elapsed
     business days; the ``GracePeriodHandler`` watchdog does that and invokes us
     only after the gate opens.
@@ -99,7 +100,9 @@ def process_redemption(
         raise RedemptionTransitionError("settlement_nav must be > 0 to PROCESS")
 
     gross_usd = redemption.units_to_redeem * settlement_nav
-    total_fee_pct = fee_structure.trader_fee_pct + fee_structure.odum_fee_pct
+    total_fee_pct = (
+        fee_structure.trader_fee_pct + fee_structure.odum_fee_pct + fee_structure.redemption_fee_pct
+    )
     fees = gross_usd * total_fee_pct
     cash_due = gross_usd - fees
 

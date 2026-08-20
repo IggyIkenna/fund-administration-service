@@ -83,6 +83,7 @@ class TransferAdapter(Protocol):
         to_address: str,
         chain: str,
         fund_context: FundTransferContext | None = None,
+        idempotency_key: str | None = None,
     ) -> TransferResult: ...
 
     async def execute_onchain_transfer(
@@ -121,6 +122,9 @@ class LocalSimulatedTransferAdapter:
     its own tests inject a real adapter directly, independent of this DI seam.
     """
 
+    def __init__(self) -> None:
+        self._issued_withdrawals: dict[str, TransferResult] = {}
+
     async def execute_internal_transfer(
         self,
         venue: str,
@@ -141,8 +145,14 @@ class LocalSimulatedTransferAdapter:
         to_address: str,
         chain: str,
         fund_context: FundTransferContext | None = None,
+        idempotency_key: str | None = None,
     ) -> TransferResult:
-        return self._confirmed(amount, fund_context)
+        if idempotency_key is not None and idempotency_key in self._issued_withdrawals:
+            return self._issued_withdrawals[idempotency_key]
+        result = self._confirmed(amount, fund_context)
+        if idempotency_key is not None:
+            self._issued_withdrawals[idempotency_key] = result
+        return result
 
     async def execute_onchain_transfer(
         self,

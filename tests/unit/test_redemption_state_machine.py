@@ -116,3 +116,39 @@ def test_process_requires_positive_nav() -> None:
     )
     with pytest.raises(RedemptionTransitionError):
         process_redemption(red, _snapshot(), Decimal("0"), _fees(), "tx")
+
+
+def test_redemption_fee_pct_deducted_only_from_redeemed_amount() -> None:
+    red = approve_redemption(
+        create_redemption(
+            redemption_id="red-1",
+            fund_id="fund-A",
+            allocator_id="client-42",
+            share_class="USDC",
+            units_to_redeem=Decimal("50"),
+            destination="0xDEAD",
+            grace_period_days=5,
+        )
+    )
+    # No redemption fee: 50 * 100 = 5000 gross; 3% perf fees = 150; cash_due = 4850.
+    without_fee = process_redemption(red, _snapshot(), Decimal("100"), _fees(), "tx-1")
+    assert without_fee.cash_amount_due_usd == Decimal("4850.00")
+
+    # 1% redemption fee charged only on this redemption's own gross amount.
+    with_fee = process_redemption(
+        red,
+        _snapshot(),
+        Decimal("100"),
+        FeeStructure(
+            trader_fee_pct=Decimal("0.02"),
+            odum_fee_pct=Decimal("0.01"),
+            redemption_fee_pct=Decimal("0.01"),
+        ),
+        "tx-2",
+    )
+    # gross 5000; total fee 4% = 200; cash_due = 4800.
+    assert with_fee.cash_amount_due_usd == Decimal("4800.00")
+    # The 1% redemption fee removed exactly 5000 * 0.01 = 50 from THIS redemption
+    # only — the fee-less redemption's math is untouched (4850), proving the fee
+    # is per-redemption, never socialized across the fund.
+    assert without_fee.cash_amount_due_usd - with_fee.cash_amount_due_usd == Decimal("50.00")
