@@ -39,6 +39,28 @@ from fund_administration_service.config import FundAdministrationServiceConfig
 _DEFAULT_LEDGER_ASSET_GROUP = "defi"
 
 
+def resolve_treasury_source_wallet_id(fund_id: str, share_class: str) -> str:
+    """Derive the treasury source-wallet identifier for *(fund_id, share_class)*.
+
+    Replaces reliance on ``FundAdministrationServiceConfig.treasury_wallet_id``
+    (a flat, process-wide default) for ledger attribution — that flat value
+    would commingle every fund's treasury ledger rows under one label, which
+    `client-funds-isolation.md` exists to prevent once a real custody adapter
+    is wired. Deterministic and fund/share-class-scoped: two different funds
+    (or share classes within a fund) always resolve to different wallet ids.
+
+    Not yet wired into the actual outbound transfer call
+    (``execute_withdrawal`` has no ``from_wallet_id`` parameter — only
+    ``execute_onchain_transfer`` does) — replacing
+    ``LocalSimulatedTransferAdapter`` with a real custody adapter is the
+    follow-on step that consumes this via that seam. This function is the
+    precondition: a real per-fund identifier to consume, not a guess made at
+    that later step.
+    """
+
+    return f"treasury:{fund_id}:{share_class}"
+
+
 def build_treasury_ledger_row(
     settled: AllocatorRedemption,
     service_config: FundAdministrationServiceConfig,
@@ -64,7 +86,7 @@ def build_treasury_ledger_row(
         asset_group=_DEFAULT_LEDGER_ASSET_GROUP,
         venue="TREASURY",
         chain=service_config.redemption_settlement_chain,
-        account_id=service_config.treasury_wallet_id,
+        account_id=resolve_treasury_source_wallet_id(settled.fund_id, settled.share_class),
         client_id=settled.allocator_id,
         counterparty_account=settled.destination,
         counterparty_client_id=None,

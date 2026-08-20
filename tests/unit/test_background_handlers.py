@@ -267,6 +267,78 @@ async def test_grace_period_handler_writes_treasury_ledger_row_on_settle() -> No
 
 
 @pytest.mark.asyncio
+async def test_treasury_ledger_source_wallet_isolated_across_funds_in_one_tick() -> None:
+    """Two DIFFERENT funds settling in the SAME `run_once()` tick resolve to
+    DIFFERENT treasury source wallets on their ledger rows -- never the flat
+    process-wide `treasury_wallet_id` default, which would commingle them."""
+
+    from fund_administration_service.ledger import resolve_treasury_source_wallet_id
+
+    class TwoFundNav:
+        def latest_snapshot(self, fund_id: str, share_class: str) -> FundNAVSnapshot:
+            return FundNAVSnapshot(
+                snapshot_id=f"snap-{fund_id}",
+                fund_id=fund_id,
+                snapshot_timestamp=datetime.now(UTC),
+                frequency=NAVSnapshotFrequency.DAILY,
+                nav_usd=Decimal("100"),
+            )
+
+    store = InMemoryStore()
+    store.put_redemption(
+        AllocatorRedemption(
+            redemption_id="red-fund-a",
+            fund_id="fund-A",
+            allocator_id="client-a",
+            share_class="USDC",
+            units_to_redeem=Decimal("2"),
+            destination="0xA",
+            requested_timestamp=datetime.now(UTC) - timedelta(days=5),
+            status=RedemptionStatus.APPROVED,
+            grace_period_days=3,
+        )
+    )
+    store.put_redemption(
+        AllocatorRedemption(
+            redemption_id="red-fund-b",
+            fund_id="fund-B",
+            allocator_id="client-b",
+            share_class="USDC",
+            units_to_redeem=Decimal("3"),
+            destination="0xB",
+            requested_timestamp=datetime.now(UTC) - timedelta(days=5),
+            status=RedemptionStatus.APPROVED,
+            grace_period_days=3,
+        )
+    )
+    store.adjust_units_outstanding("fund-A", "USDC", Decimal("1"))
+    store.adjust_units_outstanding("fund-B", "USDC", Decimal("1"))
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=TwoFundNav(),
+        fee_structure_for_fund={
+            "fund-A": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+            "fund-B": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+        },
+        transfer_adapter=_AdapterOK(),
+    )
+
+    result = await handler.run_once()
+    assert len(result) == 2
+
+    wallet_a = store.list_treasury_ledger_rows(client_id="client-a")[0].account_id
+    wallet_b = store.list_treasury_ledger_rows(client_id="client-b")[0].account_id
+    assert wallet_a != wallet_b
+    assert wallet_a == resolve_treasury_source_wallet_id("fund-A", "USDC")
+    assert wallet_b == resolve_treasury_source_wallet_id("fund-B", "USDC")
+    # Neither resolves to the flat process-wide default -- that's the whole point.
+    default_wallet = FundAdministrationServiceConfig().treasury_wallet_id
+    assert wallet_a != default_wallet
+    assert wallet_b != default_wallet
+
+
+@pytest.mark.asyncio
 async def test_grace_period_handler_prefers_seconds_over_days_when_expired() -> None:
     store = InMemoryStore()
     # 5h ago with grace_period_seconds=14400 (4h) => expired by the seconds
