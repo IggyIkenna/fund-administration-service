@@ -90,6 +90,26 @@ def _redemption(status: RedemptionStatus, days_ago: int) -> AllocatorRedemption:
     )
 
 
+def _redemption_with_seconds(
+    status: RedemptionStatus, hours_ago: int, grace_period_seconds: int
+) -> AllocatorRedemption:
+    return AllocatorRedemption(
+        redemption_id=f"r-{uuid.uuid4().hex[:6]}",
+        fund_id="fund-BG",
+        allocator_id="client-BG",
+        share_class="USDC",
+        units_to_redeem=Decimal("5"),
+        destination="0xDEAD",
+        requested_timestamp=datetime.now(UTC) - timedelta(hours=hours_ago),
+        status=status,
+        # Deliberately a multi-day fallback so a test proving expiry actually
+        # used grace_period_seconds (not grace_period_days) cannot pass by
+        # accident via the days-based math.
+        grace_period_days=5,
+        grace_period_seconds=grace_period_seconds,
+    )
+
+
 @pytest.mark.asyncio
 async def test_grace_period_handler_drives_expired_redemptions() -> None:
     store = InMemoryStore()
@@ -112,6 +132,55 @@ async def test_grace_period_handler_drives_expired_redemptions() -> None:
     result = await handler.run_once()
     assert len(result) == 1
     assert result[0].status is RedemptionStatus.SETTLED
+
+
+@pytest.mark.asyncio
+async def test_grace_period_handler_prefers_seconds_over_days_when_expired() -> None:
+    store = InMemoryStore()
+    # 5h ago with grace_period_seconds=14400 (4h) => expired by the seconds
+    # math, even though grace_period_days=5 would say "not for 5 days".
+    store.put_redemption(
+        _redemption_with_seconds(RedemptionStatus.APPROVED, hours_ago=5, grace_period_seconds=14400)
+    )
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-BG": FeeStructure(
+                trader_fee_pct=Decimal("0.02"),
+                odum_fee_pct=Decimal("0.01"),
+            )
+        },
+        transfer_adapter=_AdapterOK(),
+    )
+    result = await handler.run_once()
+    assert len(result) == 1
+    assert result[0].status is RedemptionStatus.SETTLED
+
+
+@pytest.mark.asyncio
+async def test_grace_period_handler_seconds_not_yet_expired_is_skipped() -> None:
+    store = InMemoryStore()
+    # 2h ago with grace_period_seconds=14400 (4h) => not yet expired by the
+    # seconds math.
+    store.put_redemption(
+        _redemption_with_seconds(RedemptionStatus.APPROVED, hours_ago=2, grace_period_seconds=14400)
+    )
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-BG": FeeStructure(
+                trader_fee_pct=Decimal("0.02"),
+                odum_fee_pct=Decimal("0.01"),
+            )
+        },
+        transfer_adapter=_AdapterOK(),
+    )
+    result = await handler.run_once()
+    assert result == []
 
 
 @pytest.mark.asyncio
