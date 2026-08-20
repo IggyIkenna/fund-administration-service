@@ -490,3 +490,77 @@ async def test_units_outstanding_divisor_changes_settlement_nav_from_raw_nav_usd
     assert settled_redemption.cash_amount_due_usd != Decimal("100") * Decimal("20000")
     # Units outstanding decremented by the 100 redeemed -> 300 remain.
     assert store.get_units_outstanding(fund_id, share_class) == Decimal("300")
+
+
+async def test_withdraw_to_allocator_carries_allocator_client_id() -> None:
+    """Each redemption's withdrawal carries ITS OWN ``client_id`` (= allocator_id).
+
+    execution-service enforces the client-funds-isolation HARD RULE against this
+    ``client_id`` at the TransferAdapter boundary (raises
+    ``CrossClientTransferForbiddenError`` on a mismatch with the process-bound
+    ``CLIENT_ID``), so a batch that cross-wires one redemption's context into
+    another's withdrawal is rejected there, not silently paid out.  This proves
+    the fund-admin side sends the right identity per redemption.
+    """
+
+    class RecordingAdapter(_AdapterOK):
+        def __init__(self) -> None:
+            self.client_ids: list[str] = []
+
+        async def execute_withdrawal(
+            self, venue, token, amount, to_address, chain, fund_context=None
+        ):
+            assert fund_context is not None
+            assert fund_context.client_id is not None
+            self.client_ids.append(fund_context.client_id)
+            return await super().execute_withdrawal(
+                venue, token, amount, to_address, chain, fund_context
+            )
+
+    store = InMemoryStore()
+    first = AllocatorRedemption(
+        redemption_id="redemption-client-a",
+        fund_id="fund-A",
+        allocator_id="client-A",
+        share_class="USDC",
+        units_to_redeem=Decimal("2"),
+        destination="0xCLIENT_A",
+        requested_timestamp=datetime.now(UTC) - timedelta(days=5),
+        status=RedemptionStatus.APPROVED,
+        grace_period_days=3,
+    )
+    second = first.model_copy(
+        update={
+            "redemption_id": "redemption-client-b",
+            "fund_id": "fund-B",
+            "allocator_id": "client-B",
+            "destination": "0xCLIENT_B",
+        }
+    )
+    store.put_redemption(first)
+    store.put_redemption(second)
+    # Seed units_outstanding so the real units-outstanding NAV divisor
+    # (companion plan's _drive_unchecked) resolves per-unit NAV.
+    store.adjust_units_outstanding("fund-A", "USDC", Decimal("1"))
+    store.adjust_units_outstanding("fund-B", "USDC", Decimal("1"))
+    adapter = RecordingAdapter()
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-A": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+            "fund-B": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+        },
+        transfer_adapter=adapter,
+    )
+
+    result = await handler.run_once()
+
+    assert {redemption.redemption_id for redemption in result} == {
+        "redemption-client-a",
+        "redemption-client-b",
+    }
+    # Each withdrawal's client_id == that redemption's own allocator (never a
+    # shared/cross-wired context across the two allocators in the same tick).
+    assert sorted(adapter.client_ids) == ["client-A", "client-B"]

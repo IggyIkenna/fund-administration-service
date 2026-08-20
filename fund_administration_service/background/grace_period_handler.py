@@ -162,6 +162,7 @@ class GracePeriodHandler:
         """Execute the outbound treasury withdrawal for *redemption*."""
 
         fund_context = FundTransferContext(
+            client_id=redemption.allocator_id,
             fund_id=redemption.fund_id,
             share_class=redemption.share_class,
             allocation_id=None,
