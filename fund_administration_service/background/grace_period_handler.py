@@ -41,7 +41,7 @@ from fund_administration_service.redemption import (
     process_redemption,
     settle_redemption,
 )
-from fund_administration_service.subscription import NavProvider
+from fund_administration_service.subscription import AmlKycGate, NavProvider
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +66,14 @@ class GracePeriodHandler:
         nav_provider: NavProvider,
         fee_structure_for_fund: dict[str, FeeStructure],
         transfer_adapter: TransferAdapter,
+        aml_gate: AmlKycGate | None = None,
     ) -> None:
         self._config = service_config
         self._store = store
         self._nav_provider = nav_provider
         self._fee_structure_for_fund = fee_structure_for_fund
         self._transfers = transfer_adapter
+        self._aml_gate = aml_gate
 
     async def run_forever(self, interval_seconds: int) -> None:
         """Wall-clock loop — calls ``run_once()`` then sleeps ``interval_seconds``,
@@ -167,9 +169,31 @@ class GracePeriodHandler:
                 f"share_class={redemption.share_class} — cannot resolve per-unit NAV"
             )
         settlement_nav = snapshot.nav_usd / units_outstanding
+        self._assert_aml_clear(redemption)
         transfer = await self._withdraw_to_allocator(redemption, settlement_nav)
         moved = self._persist_processed(redemption, snapshot, settlement_nav, transfer)
         return self._persist_settled(moved)
+
+    def _assert_aml_clear(self, redemption: AllocatorRedemption) -> None:
+        """Re-evaluate the allocator's AML/KYC clearance at grace-expiry time.
+
+        The gate is otherwise evaluated ONLY at subscription-approval time
+        (api/main.py) — a grace period spanning hours-to-days means a client's
+        AML/KYC status can change in between. A rejection here raises
+        ``GracePeriodProcessingError`` so the redemption is NOT paid out
+        (shard-isolated; re-checked on the next tick while still APPROVED).
+        """
+        if self._aml_gate is None:
+            return
+        decision = self._aml_gate.evaluate(
+            redemption.allocator_id, redemption.fund_id, redemption.share_class
+        )
+        if not decision.approved:
+            raise GracePeriodProcessingError(
+                f"AML/KYC clearance REJECTED for allocator={redemption.allocator_id} "
+                f"fund={redemption.fund_id} share_class={redemption.share_class}: "
+                f"{decision.reason}"
+            )
 
     async def _withdraw_to_allocator(
         self, redemption: AllocatorRedemption, settlement_nav: Decimal
