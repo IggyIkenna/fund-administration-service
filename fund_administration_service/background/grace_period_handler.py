@@ -174,6 +174,10 @@ class GracePeriodHandler:
             to_address=redemption.destination,
             chain=self._config.redemption_settlement_chain,
             fund_context=fund_context,
+            # Idempotency key = redemption_id: a retried tick after a crash
+            # (withdrawal succeeded, persist failed) dedupes at the adapter
+            # boundary instead of double-withdrawing.
+            idempotency_key=redemption.redemption_id,
         )
 
     def _persist_processed(

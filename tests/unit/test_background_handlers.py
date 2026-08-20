@@ -44,7 +44,9 @@ class _AdapterOK:
             fund_context=fund_context,
         )
 
-    async def execute_withdrawal(self, venue, token, amount, to_address, chain, fund_context=None):
+    async def execute_withdrawal(
+        self, venue, token, amount, to_address, chain, fund_context=None, idempotency_key=None
+    ):
         return TransferResult(
             transfer_id=f"w-{uuid.uuid4().hex[:6]}",
             status=TransferStatus.CONFIRMED,
@@ -123,7 +125,7 @@ async def test_grace_period_handler_keeps_multi_client_withdrawals_isolated() ->
             self.withdrawals: list[tuple[str, Decimal, str]] = []
 
         async def execute_withdrawal(
-            self, venue, token, amount, to_address, chain, fund_context=None
+            self, venue, token, amount, to_address, chain, fund_context=None, idempotency_key=None
         ):
             assert fund_context is not None
             self.withdrawals.append((to_address, amount, fund_context.fund_id))
@@ -508,7 +510,7 @@ async def test_withdraw_to_allocator_carries_allocator_client_id() -> None:
             self.client_ids: list[str] = []
 
         async def execute_withdrawal(
-            self, venue, token, amount, to_address, chain, fund_context=None
+            self, venue, token, amount, to_address, chain, fund_context=None, idempotency_key=None
         ):
             assert fund_context is not None
             assert fund_context.client_id is not None
@@ -564,3 +566,69 @@ async def test_withdraw_to_allocator_carries_allocator_client_id() -> None:
     # Each withdrawal's client_id == that redemption's own allocator (never a
     # shared/cross-wired context across the two allocators in the same tick).
     assert sorted(adapter.client_ids) == ["client-A", "client-B"]
+
+
+@pytest.mark.asyncio
+async def test_crashed_tick_does_not_double_withdraw_on_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``run_once()`` tick that crashes after the withdrawal succeeds but
+    before the redemption is persisted must NOT double-withdraw on the retry
+    tick: the withdrawal's idempotency key IS the ``redemption_id``, so the
+    adapter dedupes the repeated call (returns the cached result) and only ONE
+    real withdrawal is issued for that redemption.
+    """
+
+    class IdempotentAdapter(_AdapterOK):
+        def __init__(self) -> None:
+            self._issued: dict[str, TransferResult] = {}
+            self.withdrawal_keys: list[str] = []
+
+        async def execute_withdrawal(
+            self, venue, token, amount, to_address, chain, fund_context=None, idempotency_key=None
+        ):
+            assert idempotency_key is not None
+            if idempotency_key in self._issued:
+                return self._issued[idempotency_key]
+            result = await super().execute_withdrawal(
+                venue, token, amount, to_address, chain, fund_context
+            )
+            self.withdrawal_keys.append(idempotency_key)
+            self._issued[idempotency_key] = result
+            return result
+
+    store = InMemoryStore()
+    redemption = _redemption(RedemptionStatus.APPROVED, days_ago=5)
+    store.put_redemption(redemption)
+    store.adjust_units_outstanding("fund-BG", "USDC", Decimal("1"))
+    adapter = IdempotentAdapter()
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-BG": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0"))
+        },
+        transfer_adapter=adapter,
+    )
+
+    # Tick 1: withdrawal succeeds, then persistence crashes (simulated by
+    # patching _persist_processed to raise) -> the redemption stays APPROVED
+    # and past its expiry.
+    real_persist = handler._persist_processed
+
+    def _crash(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("simulated persist crash")
+
+    monkeypatch.setattr(handler, "_persist_processed", _crash)
+    result1 = await handler.run_once()
+    assert result1 == []  # crash isolated per redemption
+    assert adapter.withdrawal_keys == [redemption.redemption_id]
+
+    # Tick 2: the same redemption is retried. The adapter dedupes on the
+    # idempotency key (= redemption_id) -> NO second real withdrawal issued.
+    monkeypatch.setattr(handler, "_persist_processed", real_persist)
+    result2 = await handler.run_once()
+    assert len(result2) == 1
+    assert result2[0].status is RedemptionStatus.SETTLED
+    assert adapter.withdrawal_keys == [redemption.redemption_id]
