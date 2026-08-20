@@ -42,6 +42,7 @@ from unified_api_contracts import (
     SubscribeRequest,
     SubscriptionStatus,
 )
+from unified_api_contracts.strategy import CLIENT_REGISTRY
 from unified_trading_library import (
     FUND_ALLOCATION_REBALANCED,
     REDEMPTION_APPROVED,
@@ -380,6 +381,23 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
 
 def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
     def post_redemption(body: RedeemRequest) -> AllocatorRedemption:
+        # ``allocator_id`` == ``client_id`` (AllocatorRedemption's own docstring).
+        # An sma-typed client's withdrawals are a direct execution-service
+        # concern and never create an AllocatorRedemption here — see
+        # /plans/active/client_archetype_vehicle_eligibility_sma_vs_fund_2026_08_20.md.
+        # An unregistered client_id (not in CLIENT_REGISTRY) is treated as
+        # today's default (fund) rather than rejected, for backward
+        # compatibility with callers that predate the registry.
+        client = CLIENT_REGISTRY.get(body.allocator_id)
+        if client is not None and client.vehicle_type == "sma":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"client_id={body.allocator_id} is vehicle_type=sma — SMA "
+                    "withdrawals are a direct execution-service concern, not a "
+                    "fund-administration redemption"
+                ),
+            )
         grace = (
             body.grace_period_days
             if body.grace_period_days is not None
