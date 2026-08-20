@@ -36,6 +36,7 @@ from fund_administration_service.allocation.transfer_protocol import (
 )
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.events import emit_fund_admin_event
+from fund_administration_service.ledger import build_treasury_ledger_row
 from fund_administration_service.persistence import PersistenceStore
 from fund_administration_service.redemption import (
     process_redemption,
@@ -257,6 +258,7 @@ class GracePeriodHandler:
 
         settled = settle_redemption(moved)
         self._store.put_redemption(settled)
+        self._store.put_treasury_ledger_row(build_treasury_ledger_row(settled, self._config))
         emit_fund_admin_event(
             REDEMPTION_SETTLED,
             details={

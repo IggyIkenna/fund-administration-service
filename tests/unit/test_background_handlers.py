@@ -227,6 +227,46 @@ async def test_grace_period_handler_drives_expired_redemptions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_grace_period_handler_writes_treasury_ledger_row_on_settle() -> None:
+    """A settled redemption produces a queryable ``ledger_type=treasury`` row.
+
+    Writer for the acked-but-previously-unimplemented ``ledger_type=treasury/
+    client_id={cid}/`` partition (Phase 6 split decision, 2026-05-23 ack).
+    """
+
+    store = InMemoryStore()
+    store.put_redemption(_redemption(RedemptionStatus.APPROVED, days_ago=5))
+    store.adjust_units_outstanding("fund-BG", "USDC", Decimal("1"))
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-BG": FeeStructure(
+                trader_fee_pct=Decimal("0.02"),
+                odum_fee_pct=Decimal("0.01"),
+            )
+        },
+        transfer_adapter=_AdapterOK(),
+    )
+    result = await handler.run_once()
+    settled = result[0]
+    assert settled.status is RedemptionStatus.SETTLED
+
+    rows = store.list_treasury_ledger_rows(client_id="client-BG")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.event_id == settled.redemption_id
+    assert row.client_id == "client-BG"
+    assert row.counterparty_client_id is None
+    assert row.delta == -settled.cash_amount_due_usd
+    assert row.asset_group  # non-empty — documented default, not a blank field
+
+    # A second, unrelated client's query must not see this row.
+    assert store.list_treasury_ledger_rows(client_id="some-other-client") == []
+
+
+@pytest.mark.asyncio
 async def test_grace_period_handler_prefers_seconds_over_days_when_expired() -> None:
     store = InMemoryStore()
     # 5h ago with grace_period_seconds=14400 (4h) => expired by the seconds
