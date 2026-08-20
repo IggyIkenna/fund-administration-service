@@ -8,8 +8,10 @@ boundary; the individual failure is logged + event-emitted and the handler
 moves to the next redemption.
 
 This is the simple wall-clock variant: grace-period expiry = ``requested_timestamp
-+ grace_period_days * 86400s``. The business-day calendar calculation is a
-follow-up once the execution calendar service lands.
++ grace_period_seconds`` when ``grace_period_seconds`` is set, else
+``requested_timestamp + grace_period_days * 86400s``. The business-day
+calendar calculation is a follow-up once the execution calendar service
+lands.
 """
 
 from __future__ import annotations
@@ -78,7 +80,14 @@ class GracePeriodHandler:
         for redemption in self._store.list_pending_redemptions():
             if redemption.status is not RedemptionStatus.APPROVED:
                 continue
-            expiry = redemption.requested_timestamp + timedelta(days=redemption.grace_period_days)
+            if redemption.grace_period_seconds is not None:
+                expiry = redemption.requested_timestamp + timedelta(
+                    seconds=redemption.grace_period_seconds
+                )
+            else:
+                expiry = redemption.requested_timestamp + timedelta(
+                    days=redemption.grace_period_days
+                )
             if now < expiry:
                 continue
             try:
