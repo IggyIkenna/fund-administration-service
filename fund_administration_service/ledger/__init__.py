@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
-from fund_administration_service.ledger.treasury_ledger import build_treasury_ledger_row
+from fund_administration_service.ledger.treasury_ledger import (
+    build_treasury_ledger_row,
+    resolve_treasury_source_wallet_id,
+)
 
-__all__ = ["build_treasury_ledger_row"]
+__all__ = ["build_treasury_ledger_row", "resolve_treasury_source_wallet_id"]
