@@ -16,6 +16,7 @@ lands.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -98,6 +99,17 @@ class GracePeriodHandler:
                     redemption.redemption_id,
                 )
         return processed
+
+    async def run_forever(self, interval_seconds: int) -> None:
+        """Call ``run_once`` on an ``asyncio.sleep``-driven wall-clock interval.
+
+        Runs until the enclosing task is cancelled (the production caller —
+        the FastAPI lifespan hook — cancels it on shutdown).
+        """
+
+        while True:
+            await self.run_once()
+            await asyncio.sleep(interval_seconds)
 
     async def _drive(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
         try:

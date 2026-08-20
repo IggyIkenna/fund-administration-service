@@ -16,7 +16,10 @@ their own ``_Container`` instance into ``create_app(...)``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -56,6 +59,7 @@ from unified_trading_library import (
 from fund_administration_service import __version__
 from fund_administration_service.allocation import AllocationTarget, CapitalRouter
 from fund_administration_service.allocation.transfer_protocol import TransferAdapter
+from fund_administration_service.background import GracePeriodHandler
 from fund_administration_service.config import (
     FundAdministrationServiceConfig,
     get_service_config,
@@ -159,11 +163,44 @@ def create_app(container: _Container | None = None) -> FastAPI:
     """
 
     ctx = container or _build_default_container()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        """Start the grace-period watchdog's wall-clock loop at app startup.
+
+        Only starts once a real ``transfer_adapter`` is wired — the default
+        container's stub (``None``) means the loop would fail on its first
+        withdrawal, so it stays dormant until DI wiring lands (see the
+        ``_default_container()`` wiring todo in the redemption-cadence-engine
+        plan) rather than crashing every request cycle in dev/test.
+        """
+
+        task: asyncio.Task[None] | None = None
+        if ctx.transfer_adapter is not None:
+            handler = GracePeriodHandler(
+                service_config=ctx.service_config,
+                store=ctx.store,
+                nav_provider=ctx.nav_provider,
+                fee_structure_for_fund=ctx.fee_structure_for_fund,
+                transfer_adapter=ctx.transfer_adapter,
+            )
+            task = asyncio.create_task(
+                handler.run_forever(ctx.service_config.redemption_cadence_seconds)
+            )
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
     app = FastAPI(
         title="fund-administration-service",
         version=__version__,
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
     app.include_router(
         make_health_router(

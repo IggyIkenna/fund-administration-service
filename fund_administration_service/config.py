@@ -43,6 +43,12 @@ class FundAdministrationServiceConfig(UnifiedCloudConfig):
         description="Default redemption grace period (business days)",
     )
 
+    redemption_cadence_seconds: int = Field(
+        default=28800,
+        validation_alias=AliasChoices("REDEMPTION_CADENCE_SECONDS", "redemption_cadence_seconds"),
+        description="Grace-period watchdog polling interval in seconds (default 8h)",
+    )
+
     nav_publish_cadence_seconds: int = Field(
         default=86400,
         validation_alias=AliasChoices("NAV_PUBLISH_CADENCE_SECONDS", "nav_publish_cadence_seconds"),
