@@ -86,18 +86,30 @@ class GracePeriodHandler:
             await asyncio.sleep(interval_seconds)
 
     async def run_once(self) -> list[AllocatorRedemption]:
-        """Process every APPROVED redemption whose grace-period has expired."""
+        """Process every APPROVED redemption whose grace-period has expired.
+
+        Strikes ONE ``FundNAVSnapshot`` per ``(fund_id, share_class)`` per tick
+        and reuses it across every redemption settled in that tick, so all
+        withdrawals in one cadence settle against the same NAV strike.
+        """
 
         processed: list[AllocatorRedemption] = []
         now = datetime.now(UTC)
+        snapshot_cache: dict[tuple[str, str], FundNAVSnapshot | None] = {}
         for redemption in self._store.list_pending_redemptions():
             if redemption.status is not RedemptionStatus.APPROVED:
                 continue
             expiry = self._expiry_for(redemption)
             if now < expiry:
                 continue
+            key = (redemption.fund_id, redemption.share_class)
+            if key not in snapshot_cache:
+                snapshot_cache[key] = self._nav_provider.latest_snapshot(
+                    redemption.fund_id, redemption.share_class
+                )
+            snapshot = snapshot_cache[key]
             try:
-                processed.append(await self._drive(redemption))
+                processed.append(await self._drive(redemption, snapshot))
             except GracePeriodProcessingError:  # shard-level isolation per redemption
                 logger.exception(
                     "Grace-period processing failed for redemption_id=%s",
@@ -118,9 +130,11 @@ class GracePeriodHandler:
             seconds=redemption.grace_period_days * 86400
         )
 
-    async def _drive(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
+    async def _drive(
+        self, redemption: AllocatorRedemption, snapshot: FundNAVSnapshot | None
+    ) -> AllocatorRedemption:
         try:
-            return await self._drive_unchecked(redemption)
+            return await self._drive_unchecked(redemption, snapshot)
         except GracePeriodProcessingError:
             raise
         except Exception as exc:  # narrow-wrap: all failures become one class
@@ -128,10 +142,11 @@ class GracePeriodHandler:
                 f"Grace-period processing failed for redemption_id={redemption.redemption_id}"
             ) from exc
 
-    async def _drive_unchecked(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
+    async def _drive_unchecked(
+        self, redemption: AllocatorRedemption, snapshot: FundNAVSnapshot | None
+    ) -> AllocatorRedemption:
         """Happy-path drive — ``_drive`` wraps failures into a single error class."""
 
-        snapshot = self._nav_provider.latest_snapshot(redemption.fund_id, redemption.share_class)
         if snapshot is None:
             raise GracePeriodProcessingError(
                 f"No NAV snapshot available for "
