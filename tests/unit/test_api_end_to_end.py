@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from fastapi.testclient import TestClient
 from unified_api_contracts import FundTransferContext
 from unified_api_contracts.internal import (
@@ -21,6 +22,7 @@ from unified_api_contracts.internal import (
     FundNAVSnapshot,
     NAVSnapshotFrequency,
 )
+from unified_api_contracts.strategy import ClientDefinition, ClientRegistry
 from unified_trading_library import setup_events
 
 from fund_administration_service.allocation.transfer_protocol import (
@@ -28,6 +30,7 @@ from fund_administration_service.allocation.transfer_protocol import (
     TransferResult,
     TransferStatus,
 )
+from fund_administration_service.api import main as fund_admin_main
 from fund_administration_service.api.main import (
     _build_default_container,
     _Container,
@@ -394,3 +397,76 @@ async def test_local_simulated_transfer_adapter_confirms_every_method() -> None:
         assert result.status is TransferStatus.CONFIRMED
         assert result.transfer_id
         assert result.tx_hash == result.transfer_id
+
+
+def _client_registry_with(*definitions: ClientDefinition) -> ClientRegistry:
+    return ClientRegistry(clients=list(definitions))
+
+
+def test_sma_client_redemption_request_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registered sma-typed client_id is rejected at the redemption-creation
+    endpoint — that vehicle's withdrawals are a direct execution-service
+    concern, out of fund-administration-service's scope. See
+    /plans/active/client_archetype_vehicle_eligibility_sma_vs_fund_2026_08_20.md."""
+
+    monkeypatch.setattr(
+        fund_admin_main,
+        "CLIENT_REGISTRY",
+        _client_registry_with(
+            ClientDefinition(
+                client_id="sma-client-IT",
+                name="SMA Client",
+                entity="SMA Capital",
+                vehicle_type="sma",
+            )
+        ),
+    )
+    client, _sink = _make_client()
+
+    r = client.post(
+        "/redemptions",
+        json={
+            "redemption_id": "red-sma-1",
+            "fund_id": "fund-IT",
+            "allocator_id": "sma-client-IT",
+            "share_class": "USDC",
+            "units_to_redeem": "10",
+            "destination": "0xDEAD",
+            "grace_period_days": 0,
+        },
+    )
+    assert r.status_code == 403
+    assert "sma" in r.json()["detail"].lower()
+
+
+def test_fund_client_redemption_request_unaffected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registered fund-typed client_id proceeds exactly as before — the
+    routing gate only rejects sma-typed clients."""
+
+    monkeypatch.setattr(
+        fund_admin_main,
+        "CLIENT_REGISTRY",
+        _client_registry_with(
+            ClientDefinition(
+                client_id="fund-client-IT",
+                name="Fund Client",
+                entity="Fund Capital",
+                vehicle_type="fund",
+            )
+        ),
+    )
+    client, _sink = _make_client()
+
+    r = client.post(
+        "/redemptions",
+        json={
+            "redemption_id": "red-fund-1",
+            "fund_id": "fund-IT",
+            "allocator_id": "fund-client-IT",
+            "share_class": "USDC",
+            "units_to_redeem": "10",
+            "destination": "0xDEAD",
+            "grace_period_days": 0,
+        },
+    )
+    assert r.status_code == 200
