@@ -300,6 +300,55 @@ async def test_grace_period_handler_isolates_nav_miss() -> None:
     assert result == []
 
 
+class _StopLoopError(Exception):
+    """Sentinel raised by the monkeypatched sleep to end the loop deterministically."""
+
+
+@pytest.mark.asyncio
+async def test_grace_period_handler_run_forever_fires_at_configured_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=InMemoryStore(),
+        nav_provider=_StaticNav(None),
+        fee_structure_for_fund={},
+        transfer_adapter=_AdapterOK(),
+    )
+
+    run_once_calls = 0
+    real_run_once = handler.run_once
+
+    async def _counting_run_once() -> list[AllocatorRedemption]:
+        nonlocal run_once_calls
+        run_once_calls += 1
+        return await real_run_once()
+
+    monkeypatch.setattr(handler, "run_once", _counting_run_once)
+
+    sleep_intervals: list[int] = []
+
+    async def _fast_sleep(seconds: int) -> None:
+        sleep_intervals.append(seconds)
+        if len(sleep_intervals) >= 3:
+            # Deterministically end the loop after 3 iterations — no real
+            # event-loop scheduling/cancellation timing games needed.
+            raise _StopLoopError
+
+    monkeypatch.setattr(
+        "fund_administration_service.background.grace_period_handler.asyncio.sleep",
+        _fast_sleep,
+    )
+
+    # Today's state (before this method existed) is zero calls ever — assert
+    # the loop actually fires repeatedly, at the configured interval.
+    with pytest.raises(_StopLoopError):
+        await handler.run_forever(interval_seconds=999)
+
+    assert run_once_calls == 3
+    assert sleep_intervals == [999, 999, 999]
+
+
 def test_nav_strike_scheduler_returns_snapshot_when_available() -> None:
     snap = _snap()
     scheduler = NAVStrikeScheduler(
