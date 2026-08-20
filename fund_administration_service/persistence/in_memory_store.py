@@ -15,6 +15,7 @@ behind an async facade rather than changing this protocol.
 from __future__ import annotations
 
 import threading
+from decimal import Decimal
 from typing import Protocol
 
 from unified_api_contracts import (
@@ -54,6 +55,13 @@ class PersistenceStore(Protocol):
 
     def latest_nav_snapshot(self, fund_id: str) -> FundNAVSnapshot | None: ...
 
+    # --- Units-outstanding ledger -------------------------------------------
+    def get_units_outstanding(self, fund_id: str, share_class: str) -> Decimal: ...
+
+    def adjust_units_outstanding(
+        self, fund_id: str, share_class: str, delta: Decimal
+    ) -> Decimal: ...
+
 
 class InMemoryStore:
     """Thread-safe in-memory implementation of ``PersistenceStore``.
@@ -68,6 +76,7 @@ class InMemoryStore:
         self._redemptions: dict[str, AllocatorRedemption] = {}
         self._allocations: dict[str, FundAllocation] = {}
         self._nav_snapshots: dict[str, FundNAVSnapshot] = {}
+        self._units_outstanding: dict[tuple[str, str], Decimal] = {}
 
     def put_subscription(self, subscription: AllocatorSubscription) -> None:
         with self._lock:
@@ -117,3 +126,20 @@ class InMemoryStore:
     def latest_nav_snapshot(self, fund_id: str) -> FundNAVSnapshot | None:
         with self._lock:
             return self._nav_snapshots.get(fund_id)
+
+    def get_units_outstanding(self, fund_id: str, share_class: str) -> Decimal:
+        """Current units outstanding for ``(fund_id, share_class)`` — ``0`` if
+        never adjusted (honest, not a fake ``1`` that would mask a bug)."""
+
+        with self._lock:
+            return self._units_outstanding.get((fund_id, share_class), Decimal("0"))
+
+    def adjust_units_outstanding(self, fund_id: str, share_class: str, delta: Decimal) -> Decimal:
+        """Apply *delta* (positive = subscription settled, negative = redemption
+        processed) to the running total; returns the updated total."""
+
+        with self._lock:
+            key = (fund_id, share_class)
+            updated = self._units_outstanding.get(key, Decimal("0")) + delta
+            self._units_outstanding[key] = updated
+            return updated

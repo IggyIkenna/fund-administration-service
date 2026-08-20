@@ -350,6 +350,12 @@ def _register_subscription_routes(app: FastAPI, ctx: _Container) -> None:
             raise HTTPException(status_code=404, detail="Subscription not found")
         settled = settle_subscription(sub)
         ctx.store.put_subscription(settled)
+        # Subscription reached SETTLED — funds landed, units credited: they
+        # join the outstanding pool that prices future redemptions.
+        if settled.units_issued is not None:
+            ctx.store.adjust_units_outstanding(
+                settled.fund_id, settled.share_class, settled.units_issued
+            )
         emit_fund_admin_event(
             SUBSCRIPTION_SETTLED,
             details={
@@ -468,6 +474,11 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
             settlement_reference=body.settlement_reference,
         )
         ctx.store.put_redemption(processed)
+        # Redemption reached PROCESSED via the manual API path too — keep the
+        # units-outstanding ledger consistent regardless of which path drove it.
+        ctx.store.adjust_units_outstanding(
+            processed.fund_id, processed.share_class, -processed.units_to_redeem
+        )
         emit_fund_admin_event(
             REDEMPTION_PROCESSED,
             details={
