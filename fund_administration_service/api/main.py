@@ -68,6 +68,7 @@ from fund_administration_service.config import (
     get_service_config,
 )
 from fund_administration_service.events import emit_fund_admin_event
+from fund_administration_service.ledger import build_treasury_ledger_row
 from fund_administration_service.persistence import InMemoryStore, PersistenceStore
 from fund_administration_service.redemption import (
     approve_redemption,
@@ -497,6 +498,10 @@ def _register_redemption_routes(app: FastAPI, ctx: _Container) -> None:
             raise HTTPException(status_code=404, detail="Redemption not found")
         settled = settle_redemption(red)
         ctx.store.put_redemption(settled)
+        # Manual API settle path — keep the treasury ledger consistent with
+        # the automatic cadence path (GracePeriodHandler._persist_settled),
+        # which already writes this row via the same build_treasury_ledger_row.
+        ctx.store.put_treasury_ledger_row(build_treasury_ledger_row(settled, ctx.service_config))
         emit_fund_admin_event(
             REDEMPTION_SETTLED,
             details={
