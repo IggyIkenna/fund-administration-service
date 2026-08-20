@@ -199,6 +199,7 @@ def _make_lifespan(ctx: _Container) -> Callable[[FastAPI], AbstractAsyncContextM
                         nav_provider=ctx.nav_provider,
                         fee_structure_for_fund=ctx.fee_structure_for_fund,
                         transfer_adapter=transfer_adapter,
+                        aml_gate=ctx.aml_gate,
                     ).run_forever(ctx.service_config.redemption_cadence_seconds)
                 )
             )

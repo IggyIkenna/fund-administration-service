@@ -27,6 +27,7 @@ from fund_administration_service.background import (
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.persistence import InMemoryStore
 from fund_administration_service.subscription import (
+    AmlKycDecision,
     approve_subscription,
     create_subscription,
     settle_subscription,
@@ -674,3 +675,53 @@ async def test_crashed_tick_does_not_double_withdraw_on_retry(
     assert len(result2) == 1
     assert result2[0].status is RedemptionStatus.SETTLED
     assert adapter.withdrawal_keys == [redemption.redemption_id]
+
+
+@pytest.mark.asyncio
+async def test_rejected_aml_at_expiry_does_not_pay_out() -> None:
+    """AML/KYC clearance is re-checked at grace-period-EXPIRY time, not just at
+    subscription-request time: a redemption whose allocator's AML status has
+    flipped to rejected between request and expiry is NOT paid out (no
+    withdrawal is issued)."""
+
+    class RejectingDecision:
+        approved: bool = False
+        reason: str = "aml-rejected"
+
+    class RejectingAmlGate:
+        def evaluate(self, allocator_id: str, fund_id: str, share_class: str) -> AmlKycDecision:
+            return RejectingDecision()
+
+    class RecordingAdapter(_AdapterOK):
+        def __init__(self) -> None:
+            self.withdrawal_count = 0
+
+        async def execute_withdrawal(
+            self, venue, token, amount, to_address, chain, fund_context=None, idempotency_key=None
+        ):
+            self.withdrawal_count += 1
+            return await super().execute_withdrawal(
+                venue, token, amount, to_address, chain, fund_context, idempotency_key
+            )
+
+    store = InMemoryStore()
+    redemption = _redemption(RedemptionStatus.APPROVED, days_ago=5)
+    store.put_redemption(redemption)
+    store.adjust_units_outstanding("fund-BG", "USDC", Decimal("1"))
+    adapter = RecordingAdapter()
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(_snap()),
+        fee_structure_for_fund={
+            "fund-BG": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0"))
+        },
+        transfer_adapter=adapter,
+        aml_gate=RejectingAmlGate(),
+    )
+
+    result = await handler.run_once()
+
+    # The gate rejected at grace-expiry -> the redemption is NOT paid out.
+    assert result == []
+    assert adapter.withdrawal_count == 0
