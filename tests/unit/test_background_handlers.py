@@ -26,6 +26,11 @@ from fund_administration_service.background import (
 )
 from fund_administration_service.config import FundAdministrationServiceConfig
 from fund_administration_service.persistence import InMemoryStore
+from fund_administration_service.subscription import (
+    approve_subscription,
+    create_subscription,
+    settle_subscription,
+)
 
 
 class _AdapterOK:
@@ -159,6 +164,12 @@ async def test_grace_period_handler_keeps_multi_client_withdrawals_isolated() ->
     )
     store.put_redemption(first)
     store.put_redemption(second)
+    # Seed units_outstanding=1 for each (fund, share_class) so
+    # settlement_nav == nav_usd exactly, preserving this test's existing
+    # dollar-amount assertions below — the units-outstanding divisor math
+    # itself is proven by a dedicated test.
+    store.adjust_units_outstanding("fund-A", "USDC", Decimal("1"))
+    store.adjust_units_outstanding("fund-B", "USDC", Decimal("1"))
     adapter = RecordingAdapter()
     handler = GracePeriodHandler(
         service_config=FundAdministrationServiceConfig(),
@@ -194,6 +205,7 @@ async def test_grace_period_handler_drives_expired_redemptions() -> None:
     store.put_redemption(_redemption(RedemptionStatus.APPROVED, days_ago=5))
     # 1 day ago with 3-day grace = pending, should be skipped.
     store.put_redemption(_redemption(RedemptionStatus.APPROVED, days_ago=1))
+    store.adjust_units_outstanding("fund-BG", "USDC", Decimal("1"))
     handler = GracePeriodHandler(
         service_config=FundAdministrationServiceConfig(),
         store=store,
@@ -219,6 +231,7 @@ async def test_grace_period_handler_prefers_seconds_over_days_when_expired() -> 
     store.put_redemption(
         _redemption_with_seconds(RedemptionStatus.APPROVED, hours_ago=5, grace_period_seconds=14400)
     )
+    store.adjust_units_outstanding("fund-BG", "USDC", Decimal("1"))
     handler = GracePeriodHandler(
         service_config=FundAdministrationServiceConfig(),
         store=store,
@@ -403,3 +416,77 @@ async def test_nav_strike_scheduler_run_forever_fires_tick_at_configured_interva
         await scheduler.run_forever(interval_seconds=99, fund_share_classes=[("fund-BG", "USDC")])
 
     assert tick_calls == [("fund-BG", "USDC"), ("fund-BG", "USDC")]
+
+
+@pytest.mark.asyncio
+async def test_units_outstanding_divisor_changes_settlement_nav_from_raw_nav_usd() -> None:
+    """Subscribe-then-redeem: units_outstanding increments on subscription
+    SETTLED and decrements on redemption PROCESSED, and GracePeriodHandler's
+    settlement_nav is ``nav_usd / units_outstanding`` — never equal to raw
+    ``nav_usd`` once units_outstanding != 1 (proves the real divisor replaced
+    the old nav_usd-as-per-unit-NAV placeholder)."""
+
+    store = InMemoryStore()
+    fund_id, share_class = "fund-UNITS", "USDC"
+
+    # Subscribe + settle: 1000 requested / 2.50 nav_per_unit = 400 units issued.
+    sub = create_subscription(
+        subscription_id="sub-units-1",
+        fund_id=fund_id,
+        allocator_id="client-units",
+        share_class=share_class,
+        requested_amount_usd=Decimal("1000"),
+    )
+    snap_for_sub = FundNAVSnapshot(
+        snapshot_id="snap-sub",
+        fund_id=fund_id,
+        snapshot_timestamp=datetime.now(UTC),
+        frequency=NAVSnapshotFrequency.DAILY,
+        nav_usd=Decimal("1"),
+    )
+    approved_sub = approve_subscription(sub, snap_for_sub, nav_per_unit=Decimal("2.50"))
+    settled_sub = settle_subscription(approved_sub)
+    assert settled_sub.units_issued == Decimal("400")
+    store.adjust_units_outstanding(fund_id, share_class, settled_sub.units_issued)
+    assert store.get_units_outstanding(fund_id, share_class) == Decimal("400")
+
+    # Redeem 100 of the 400 outstanding units; fund NAV is 20,000.
+    redemption = AllocatorRedemption(
+        redemption_id="red-units-1",
+        fund_id=fund_id,
+        allocator_id="client-units",
+        share_class=share_class,
+        units_to_redeem=Decimal("100"),
+        destination="0xDEAD",
+        requested_timestamp=datetime.now(UTC) - timedelta(days=10),
+        status=RedemptionStatus.APPROVED,
+        grace_period_days=3,
+    )
+    store.put_redemption(redemption)
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_StaticNav(
+            FundNAVSnapshot(
+                snapshot_id="snap-red",
+                fund_id=fund_id,
+                snapshot_timestamp=datetime.now(UTC),
+                frequency=NAVSnapshotFrequency.DAILY,
+                nav_usd=Decimal("20000"),
+            )
+        ),
+        fee_structure_for_fund={
+            fund_id: FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+        },
+        transfer_adapter=_AdapterOK(),
+    )
+    result = await handler.run_once()
+
+    assert len(result) == 1
+    settled_redemption = result[0]
+    # settlement_nav = 20000 / 400 = 50 per unit -- NOT raw nav_usd (20000).
+    expected_cash_due = Decimal("100") * Decimal("50")
+    assert settled_redemption.cash_amount_due_usd == expected_cash_due
+    assert settled_redemption.cash_amount_due_usd != Decimal("100") * Decimal("20000")
+    # Units outstanding decremented by the 100 redeemed -> 300 remain.
+    assert store.get_units_outstanding(fund_id, share_class) == Decimal("300")

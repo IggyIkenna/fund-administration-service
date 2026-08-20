@@ -137,9 +137,21 @@ class GracePeriodHandler:
                 f"No NAV snapshot available for "
                 f"fund={redemption.fund_id} share_class={redemption.share_class}"
             )
-        # Units-per-unit NAV: in the scaffold we read nav_usd as the per-unit NAV
-        # directly; a proper units-outstanding divisor lands with the SQL store.
-        settlement_nav = Decimal(snapshot.nav_usd)
+        # Real units-outstanding divisor: settlement_nav is total NAV / units
+        # currently outstanding for this (fund_id, share_class) — NOT raw
+        # nav_usd. Read BEFORE this redemption's own units are removed (the
+        # decrement happens in _persist_processed), matching standard fund
+        # accounting: outstanding investors are priced on the pre-redemption
+        # unit count.
+        units_outstanding = self._store.get_units_outstanding(
+            redemption.fund_id, redemption.share_class
+        )
+        if units_outstanding <= 0:
+            raise GracePeriodProcessingError(
+                f"No units outstanding for fund={redemption.fund_id} "
+                f"share_class={redemption.share_class} — cannot resolve per-unit NAV"
+            )
+        settlement_nav = snapshot.nav_usd / units_outstanding
         transfer = await self._withdraw_to_allocator(redemption, settlement_nav)
         moved = self._persist_processed(redemption, snapshot, settlement_nav, transfer)
         return self._persist_settled(moved)
@@ -180,6 +192,10 @@ class GracePeriodHandler:
             settlement_reference=transfer.tx_hash or transfer.transfer_id,
         )
         self._store.put_redemption(moved)
+        # Redemption reached PROCESSED — its units leave the outstanding pool.
+        self._store.adjust_units_outstanding(
+            moved.fund_id, moved.share_class, -moved.units_to_redeem
+        )
         emit_fund_admin_event(
             REDEMPTION_PROCESSED,
             details={
