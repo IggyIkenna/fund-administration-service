@@ -111,6 +111,82 @@ def _redemption_with_seconds(
 
 
 @pytest.mark.asyncio
+async def test_grace_period_handler_keeps_multi_client_withdrawals_isolated() -> None:
+    class RecordingAdapter(_AdapterOK):
+        def __init__(self) -> None:
+            self.withdrawals: list[tuple[str, Decimal, str]] = []
+
+        async def execute_withdrawal(
+            self, venue, token, amount, to_address, chain, fund_context=None
+        ):
+            assert fund_context is not None
+            self.withdrawals.append((to_address, amount, fund_context.fund_id))
+            return await super().execute_withdrawal(
+                venue, token, amount, to_address, chain, fund_context
+            )
+
+    class FundNav:
+        def latest_snapshot(self, fund_id: str, share_class: str) -> FundNAVSnapshot:
+            return FundNAVSnapshot(
+                snapshot_id=f"snap-{fund_id}",
+                fund_id=fund_id,
+                snapshot_timestamp=datetime.now(UTC),
+                frequency=NAVSnapshotFrequency.DAILY,
+                nav_usd=Decimal("100"),
+            )
+
+    store = InMemoryStore()
+    first = AllocatorRedemption(
+        redemption_id="redemption-client-a",
+        fund_id="fund-A",
+        allocator_id="client-A",
+        share_class="USDC",
+        units_to_redeem=Decimal("2"),
+        destination="0xCLIENT_A",
+        requested_timestamp=datetime.now(UTC) - timedelta(days=5),
+        status=RedemptionStatus.APPROVED,
+        grace_period_days=3,
+    )
+    second = first.model_copy(
+        update={
+            "redemption_id": "redemption-client-b",
+            "fund_id": "fund-B",
+            "allocator_id": "client-B",
+            "units_to_redeem": Decimal("3"),
+            "destination": "0xCLIENT_B",
+        }
+    )
+    store.put_redemption(first)
+    store.put_redemption(second)
+    adapter = RecordingAdapter()
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=FundNav(),
+        fee_structure_for_fund={
+            "fund-A": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+            "fund-B": FeeStructure(trader_fee_pct=Decimal("0"), odum_fee_pct=Decimal("0")),
+        },
+        transfer_adapter=adapter,
+    )
+
+    result = await handler.run_once()
+
+    assert {redemption.redemption_id for redemption in result} == {
+        "redemption-client-a",
+        "redemption-client-b",
+    }
+    assert len(adapter.withdrawals) == 2
+    withdrawals = {
+        destination: (amount, fund_id) for destination, amount, fund_id in adapter.withdrawals
+    }
+    assert withdrawals == {
+        "0xCLIENT_A": (Decimal("200"), "fund-A"),
+        "0xCLIENT_B": (Decimal("300"), "fund-B"),
+    }
+
+
+@pytest.mark.asyncio
 async def test_grace_period_handler_drives_expired_redemptions() -> None:
     store = InMemoryStore()
     # 5 days ago with 3-day grace = expired, should settle.
