@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -365,3 +366,82 @@ def test_nav_strike_scheduler_returns_none_when_unavailable() -> None:
         nav_provider=_StaticNav(None),
     )
     assert scheduler.tick("fund-BG", "USDC") is None
+
+
+@pytest.mark.asyncio
+async def test_grace_period_handler_run_forever_fires_at_configured_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run_forever`` calls ``run_once()`` on every simulated sleep tick — not
+    zero times ever (today's pre-wiring state)."""
+
+    handler = GracePeriodHandler(
+        service_config=FundAdministrationServiceConfig(),
+        store=InMemoryStore(),
+        nav_provider=_StaticNav(None),
+        fee_structure_for_fund={},
+        transfer_adapter=_AdapterOK(),
+    )
+    call_count = 0
+    observed_intervals: list[int] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        observed_intervals.append(int(seconds))
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 4:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    run_once_calls = 0
+    orig_run_once = handler.run_once
+
+    async def _counting_run_once() -> list[AllocatorRedemption]:
+        nonlocal run_once_calls
+        run_once_calls += 1
+        return await orig_run_once()
+
+    handler.run_once = _counting_run_once  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await handler.run_forever(interval_seconds=123)
+
+    assert run_once_calls == 3
+    assert observed_intervals == [123, 123, 123, 123]
+
+
+@pytest.mark.asyncio
+async def test_nav_strike_scheduler_run_forever_fires_tick_at_configured_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run_forever`` calls ``tick()`` for every registered (fund_id, share_class)
+    pair on every simulated sleep tick — not zero times ever (today's
+    pre-wiring state)."""
+
+    scheduler = NAVStrikeScheduler(
+        service_config=FundAdministrationServiceConfig(),
+        nav_provider=_StaticNav(_snap()),
+    )
+    tick_calls: list[tuple[str, str]] = []
+    orig_tick = scheduler.tick
+
+    def _counting_tick(fund_id: str, share_class: str) -> FundNAVSnapshot | None:
+        tick_calls.append((fund_id, share_class))
+        return orig_tick(fund_id, share_class)
+
+    scheduler.tick = _counting_tick  # type: ignore[method-assign]
+
+    call_count = 0
+
+    async def _fake_sleep(seconds: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await scheduler.run_forever(interval_seconds=99, fund_share_classes=[("fund-BG", "USDC")])
+
+    assert tick_calls == [("fund-BG", "USDC"), ("fund-BG", "USDC")]

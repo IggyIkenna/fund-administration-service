@@ -55,6 +55,16 @@ class FundAdministrationServiceConfig(UnifiedCloudConfig):
         description="NAV strike cadence — scheduler interval in seconds",
     )
 
+    redemption_cadence_seconds: int = Field(
+        default=28800,
+        validation_alias=AliasChoices("REDEMPTION_CADENCE_SECONDS", "redemption_cadence_seconds"),
+        description=(
+            "GracePeriodHandler wall-clock loop interval in seconds — how often "
+            "APPROVED redemptions are re-checked for grace-period expiry. Default "
+            "8h (operator's own suggested starting cadence, tunable via env)."
+        ),
+    )
+
     treasury_wallet_id: str = Field(
         default="treasury-default",
         validation_alias=AliasChoices("TREASURY_WALLET_ID", "treasury_wallet_id"),

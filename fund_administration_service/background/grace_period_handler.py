@@ -73,6 +73,17 @@ class GracePeriodHandler:
         self._fee_structure_for_fund = fee_structure_for_fund
         self._transfers = transfer_adapter
 
+    async def run_forever(self, interval_seconds: int) -> None:
+        """Wall-clock loop — calls ``run_once()`` every ``interval_seconds``, forever.
+
+        Started from ``create_app()``'s FastAPI startup/lifespan hook. Runs
+        until the owning task is cancelled (app shutdown).
+        """
+
+        while True:
+            await asyncio.sleep(interval_seconds)
+            await self.run_once()
+
     async def run_once(self) -> list[AllocatorRedemption]:
         """Process every APPROVED redemption whose grace-period has expired."""
 
@@ -81,14 +92,7 @@ class GracePeriodHandler:
         for redemption in self._store.list_pending_redemptions():
             if redemption.status is not RedemptionStatus.APPROVED:
                 continue
-            if redemption.grace_period_seconds is not None:
-                expiry = redemption.requested_timestamp + timedelta(
-                    seconds=redemption.grace_period_seconds
-                )
-            else:
-                expiry = redemption.requested_timestamp + timedelta(
-                    days=redemption.grace_period_days
-                )
+            expiry = self._expiry_for(redemption)
             if now < expiry:
                 continue
             try:
@@ -100,16 +104,18 @@ class GracePeriodHandler:
                 )
         return processed
 
-    async def run_forever(self, interval_seconds: int) -> None:
-        """Call ``run_once`` on an ``asyncio.sleep``-driven wall-clock interval.
+    @staticmethod
+    def _expiry_for(redemption: AllocatorRedemption) -> datetime:
+        """Grace-period expiry — prefers hour-granularity ``grace_period_seconds``
+        when set, falling back to ``grace_period_days * 86400`` otherwise."""
 
-        Runs until the enclosing task is cancelled (the production caller —
-        the FastAPI lifespan hook — cancels it on shutdown).
-        """
-
-        while True:
-            await self.run_once()
-            await asyncio.sleep(interval_seconds)
+        if redemption.grace_period_seconds is not None:
+            return redemption.requested_timestamp + timedelta(
+                seconds=redemption.grace_period_seconds
+            )
+        return redemption.requested_timestamp + timedelta(
+            seconds=redemption.grace_period_days * 86400
+        )
 
     async def _drive(self, redemption: AllocatorRedemption) -> AllocatorRedemption:
         try:

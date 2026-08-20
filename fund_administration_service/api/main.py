@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -59,7 +59,7 @@ from unified_trading_library import (
 from fund_administration_service import __version__
 from fund_administration_service.allocation import AllocationTarget, CapitalRouter
 from fund_administration_service.allocation.transfer_protocol import TransferAdapter
-from fund_administration_service.background import GracePeriodHandler
+from fund_administration_service.background import GracePeriodHandler, NAVStrikeScheduler
 from fund_administration_service.config import (
     FundAdministrationServiceConfig,
     get_service_config,
@@ -154,6 +154,56 @@ def _data_freshness_from(container: _Container) -> dict[str, object]:
     }
 
 
+def _make_lifespan(ctx: _Container) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """Builds the lifespan context manager closed over *ctx* (avoids the
+    untyped ``app.state`` bag — ``ctx`` is captured by closure instead).
+
+    Starts the redemption-cadence + NAV-strike wall-clock loops at boot.
+    ``GracePeriodHandler.run_forever()`` drives APPROVED redemptions to
+    PROCESSED on ``redemption_cadence_seconds``; ``NAVStrikeScheduler.run_forever()``
+    strikes NAV on ``nav_publish_cadence_seconds``. Both are cancelled cleanly
+    on shutdown. Previously neither loop was ever started outside unit tests.
+    """
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        tasks: list[asyncio.Task[None]] = []
+        # Only start the redemption-cadence loop when a real TransferAdapter
+        # is wired — mock/test containers may pass None explicitly, and there
+        # is nothing useful for GracePeriodHandler to drive without one.
+        transfer_adapter = ctx.transfer_adapter
+        if transfer_adapter is not None:
+            tasks.append(
+                asyncio.create_task(
+                    GracePeriodHandler(
+                        service_config=ctx.service_config,
+                        store=ctx.store,
+                        nav_provider=ctx.nav_provider,
+                        fee_structure_for_fund=ctx.fee_structure_for_fund,
+                        transfer_adapter=transfer_adapter,
+                    ).run_forever(ctx.service_config.redemption_cadence_seconds)
+                )
+            )
+        tasks.append(
+            asyncio.create_task(
+                NAVStrikeScheduler(
+                    service_config=ctx.service_config,
+                    nav_provider=ctx.nav_provider,
+                ).run_forever(ctx.service_config.nav_publish_cadence_seconds)
+            )
+        )
+        try:
+            yield
+        finally:
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                with suppress(asyncio.CancelledError):
+                    await task
+
+    return _lifespan
+
+
 def create_app(container: _Container | None = None) -> FastAPI:
     """Build the FastAPI application.
 
@@ -163,44 +213,12 @@ def create_app(container: _Container | None = None) -> FastAPI:
     """
 
     ctx = container or _build_default_container()
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        """Start the grace-period watchdog's wall-clock loop at app startup.
-
-        Only starts once a real ``transfer_adapter`` is wired — the default
-        container's stub (``None``) means the loop would fail on its first
-        withdrawal, so it stays dormant until DI wiring lands (see the
-        ``_default_container()`` wiring todo in the redemption-cadence-engine
-        plan) rather than crashing every request cycle in dev/test.
-        """
-
-        task: asyncio.Task[None] | None = None
-        if ctx.transfer_adapter is not None:
-            handler = GracePeriodHandler(
-                service_config=ctx.service_config,
-                store=ctx.store,
-                nav_provider=ctx.nav_provider,
-                fee_structure_for_fund=ctx.fee_structure_for_fund,
-                transfer_adapter=ctx.transfer_adapter,
-            )
-            task = asyncio.create_task(
-                handler.run_forever(ctx.service_config.redemption_cadence_seconds)
-            )
-        try:
-            yield
-        finally:
-            if task is not None:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-
     app = FastAPI(
         title="fund-administration-service",
         version=__version__,
         docs_url="/docs",
         redoc_url="/redoc",
-        lifespan=lifespan,
+        lifespan=_make_lifespan(ctx),
     )
     app.include_router(
         make_health_router(
