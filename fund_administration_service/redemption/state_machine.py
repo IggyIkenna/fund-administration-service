@@ -37,6 +37,7 @@ def create_redemption(
     units_to_redeem: Decimal,
     destination: str,
     grace_period_days: int,
+    grace_period_seconds: int | None = None,
 ) -> AllocatorRedemption:
     """Build a fresh PENDING redemption."""
 
@@ -50,6 +51,7 @@ def create_redemption(
         requested_timestamp=datetime.now(UTC),
         status=RedemptionStatus.PENDING,
         grace_period_days=grace_period_days,
+        grace_period_seconds=grace_period_seconds,
     )
 
 
