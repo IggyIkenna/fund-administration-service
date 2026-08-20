@@ -23,6 +23,7 @@ from unified_api_contracts import (
     AllocatorSubscription,
     FundAllocation,
     FundNAVSnapshot,
+    LedgerRow,
 )
 
 
@@ -62,6 +63,11 @@ class PersistenceStore(Protocol):
         self, fund_id: str, share_class: str, delta: Decimal
     ) -> Decimal: ...
 
+    # --- Treasury ledger ----------------------------------------------------
+    def put_treasury_ledger_row(self, row: LedgerRow) -> None: ...
+
+    def list_treasury_ledger_rows(self, client_id: str) -> list[LedgerRow]: ...
+
 
 class InMemoryStore:
     """Thread-safe in-memory implementation of ``PersistenceStore``.
@@ -77,6 +83,7 @@ class InMemoryStore:
         self._allocations: dict[str, FundAllocation] = {}
         self._nav_snapshots: dict[str, FundNAVSnapshot] = {}
         self._units_outstanding: dict[tuple[str, str], Decimal] = {}
+        self._treasury_ledger_rows: dict[str, list[LedgerRow]] = {}
 
     def put_subscription(self, subscription: AllocatorSubscription) -> None:
         with self._lock:
@@ -143,3 +150,11 @@ class InMemoryStore:
             updated = self._units_outstanding.get(key, Decimal("0")) + delta
             self._units_outstanding[key] = updated
             return updated
+
+    def put_treasury_ledger_row(self, row: LedgerRow) -> None:
+        with self._lock:
+            self._treasury_ledger_rows.setdefault(row.client_id, []).append(row)
+
+    def list_treasury_ledger_rows(self, client_id: str) -> list[LedgerRow]:
+        with self._lock:
+            return list(self._treasury_ledger_rows.get(client_id, []))
