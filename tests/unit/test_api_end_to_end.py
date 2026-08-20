@@ -246,6 +246,71 @@ def test_full_lifecycle_loop_emits_all_events_in_order() -> None:
     assert sink.events == expected_prefix
 
 
+def test_settle_redemption_via_api_writes_treasury_ledger_row() -> None:
+    """The manual API settle path (``POST /redemptions/{id}/settle``) writes
+    the same treasury ledger row as the automatic ``GracePeriodHandler``
+    cadence path — parity for the operator-triggered path, not just the
+    background loop."""
+
+    store = InMemoryStore()
+    container = _Container(
+        service_config=FundAdministrationServiceConfig(),
+        store=store,
+        nav_provider=_FixedNavProvider(),
+        aml_gate=_AutoApproveAmlGate(),
+        transfer_adapter=_MockTransferAdapter(),
+        fee_structure_for_fund={
+            "fund-IT": FeeStructure(
+                trader_fee_pct=Decimal("0.02"),
+                odum_fee_pct=Decimal("0.01"),
+            )
+        },
+        last_nav_strike={},
+    )
+    client = TestClient(create_app(container))
+
+    client.post(
+        "/subscriptions",
+        json={
+            "subscription_id": "sub-ledger-1",
+            "fund_id": "fund-IT",
+            "allocator_id": "client-IT",
+            "share_class": "USDC",
+            "requested_amount_usd": "10000",
+        },
+    )
+    client.post("/subscriptions/sub-ledger-1/approve", json={"nav_per_unit": "100"})
+    client.post("/subscriptions/sub-ledger-1/settle")
+
+    client.post(
+        "/redemptions",
+        json={
+            "redemption_id": "red-ledger-1",
+            "fund_id": "fund-IT",
+            "allocator_id": "client-IT",
+            "share_class": "USDC",
+            "units_to_redeem": "10",
+            "destination": "0xDEAD",
+            "grace_period_days": 0,
+        },
+    )
+    client.post("/redemptions/red-ledger-1/approve")
+    client.post(
+        "/redemptions/red-ledger-1/process",
+        json={"settlement_nav": "100", "settlement_reference": "tx-ledger"},
+    )
+    r = client.post("/redemptions/red-ledger-1/settle")
+    assert r.status_code == 200
+    settled = r.json()
+
+    rows = store.list_treasury_ledger_rows(client_id="client-IT")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.event_id == "red-ledger-1"
+    assert row.counterparty_client_id is None
+    assert row.delta == -Decimal(settled["cash_amount_due_usd"])
+
+
 def test_health_endpoint_returns_ok() -> None:
     client, _sink = _make_client()
     r = client.get("/health")
