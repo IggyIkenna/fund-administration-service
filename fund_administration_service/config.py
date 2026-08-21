@@ -67,6 +67,18 @@ class FundAdministrationServiceConfig(UnifiedCloudConfig):
         description="Default chain used when withdrawing to allocator on-chain destination",
     )
 
+    config_store_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("CONFIG_STORE_BUCKET", "config_store_bucket"),
+        description=(
+            "Cloud storage bucket holding the venues domain config store — consumed by "
+            "config_reloaders.start_fund_administration_config_reloaders() for hot-reload. "
+            "Empty (default) disables hot-reload, matching UnifiedCloudConfig's own lack of "
+            "this field (each service declares it locally; see execution-service / "
+            "alerting-service / client-reporting-api config.py for the same pattern)."
+        ),
+    )
+
 
 _service_config: FundAdministrationServiceConfig | None = None
 
