@@ -68,6 +68,10 @@ from fund_administration_service.config import (
     FundAdministrationServiceConfig,
     get_service_config,
 )
+from fund_administration_service.config_reloaders import (
+    start_fund_administration_config_reloaders,
+    stop_fund_administration_config_reloaders,
+)
 from fund_administration_service.events import emit_fund_admin_event
 from fund_administration_service.ledger import build_treasury_ledger_row
 from fund_administration_service.persistence import InMemoryStore, PersistenceStore
@@ -183,10 +187,16 @@ def _make_lifespan(ctx: _Container) -> Callable[[FastAPI], AbstractAsyncContextM
     PROCESSED on ``redemption_cadence_seconds``; ``NAVStrikeScheduler.run_forever()``
     strikes NAV on ``nav_publish_cadence_seconds``. Both are cancelled cleanly
     on shutdown. Previously neither loop was ever started outside unit tests.
+
+    Also starts the venues domain config hot-reloader
+    (``config_reloaders.start_fund_administration_config_reloaders``) — a
+    no-op when ``config_store_bucket`` is unset (the default), matching how
+    execution-service / alerting-service wire the same pattern at startup.
     """
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        start_fund_administration_config_reloaders(ctx.service_config)
         tasks: list[asyncio.Task[None]] = []
         # Only start the redemption-cadence loop when a real TransferAdapter
         # is wired — mock/test containers may pass None explicitly, and there
@@ -221,6 +231,7 @@ def _make_lifespan(ctx: _Container) -> Callable[[FastAPI], AbstractAsyncContextM
             for task in tasks:
                 with suppress(asyncio.CancelledError):
                     await task
+            stop_fund_administration_config_reloaders()
 
     return _lifespan
 
